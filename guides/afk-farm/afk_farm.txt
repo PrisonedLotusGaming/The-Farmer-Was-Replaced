@@ -59,8 +59,8 @@ MAZE_RUNS = 5
 MAZE_DRONES = 8
 DINO_MAX_STEPS = 200000
 DINO_SIZE = 8
-# Bail if this many full-farm laps pass with no apple eaten (stuck on own tail).
-DINO_IDLE_LAPS = 2
+# Bail only after this many full-farm laps with no apple eaten (tail trap).
+DINO_IDLE_LAPS = 3
 
 POWER_LOW = 200
 POWER_TARGET = 2000
@@ -1310,14 +1310,14 @@ def dino_run():
 			set_world_size(old_size)
 		return False
 
-	# measure() on an apple returns the NEXT apple. Eating only happens when we MOVE off it.
+	# measure() on an apple returns the NEXT apple. Eating happens when we MOVE off it.
 	size = get_world_size()
 	target = dino_apple(size)
 	steps = 0
 	eaten = 1
 	idle = 0
-	# Hard cap: a few full covers. Idle bail catches tail-traps much sooner.
-	max_steps = goal * 4
+	# Allow up to ~one full cover per apple, capped by DINO_MAX_STEPS.
+	max_steps = goal * goal
 	if max_steps > DINO_MAX_STEPS:
 		max_steps = DINO_MAX_STEPS
 	idle_limit = goal * DINO_IDLE_LAPS
@@ -1333,7 +1333,9 @@ def dino_run():
 			quick_print("dino full")
 			break
 
+		on_apple = False
 		if get_entity_type() == Entities.Apple:
+			on_apple = True
 			nxt = dino_apple(size)
 			if nxt != None:
 				target = nxt
@@ -1342,18 +1344,15 @@ def dino_run():
 		if target == None:
 			target = [0, 0]
 
-		before_p = stock(Items.Pumpkin)
-		before_c = stock(Items.Cactus)
 		if not dino_step_smart(target[0], target[1], eaten, size):
 			quick_print("dino boxed")
 			break
-		if stock(Items.Pumpkin) < before_p or stock(Items.Cactus) < before_c:
+
+		# Leaving an apple always eats it (more reliable than watching food stock).
+		if on_apple:
 			eaten = eaten + 1
 			idle = 0
 			quick_print(eaten)
-			nxt = dino_apple(size)
-			if nxt != None:
-				target = nxt
 		else:
 			idle = idle + 1
 			if idle >= idle_limit:
