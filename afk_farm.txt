@@ -1261,10 +1261,14 @@ def dino_run():
 		return False
 
 	old_size = get_world_size()
-	size = dino_target_size()
+	# Only shrink when Debug_2 exists. Otherwise apple coords are on the real farm;
+	# filtering them with DINO_SIZE made measure look "empty" and froze on the apple.
+	size = old_size
+	if have(Unlocks.Debug_2):
+		size = dino_target_size()
 	goal = size * size
 
-	# Food for a full small-map clear.
+	# Food for a full clear of the dino grid.
 	food = stock(Items.Pumpkin)
 	if stock(Items.Cactus) > food:
 		food = stock(Items.Cactus)
@@ -1283,7 +1287,6 @@ def dino_run():
 	before_pump = stock(Items.Pumpkin)
 	before_cact = stock(Items.Cactus)
 
-	# Shrink first so clear + snake run on the small grid.
 	if have(Unlocks.Debug_2):
 		if size < old_size:
 			set_world_size(size)
@@ -1305,14 +1308,16 @@ def dino_run():
 			set_world_size(old_size)
 		return False
 
+	# measure() on an apple returns the NEXT apple. Eating only happens when we MOVE off it.
+	size = get_world_size()
 	target = dino_apple(size)
 	steps = 0
 	eaten = 1
 	quick_print("dino go")
 
-	# Fill the restricted map completely.
 	while eaten < goal and steps < DINO_MAX_STEPS:
 		steps = steps + 1
+		size = get_world_size()
 
 		if not dino_can_move_any():
 			quick_print("dino full")
@@ -1321,24 +1326,11 @@ def dino_run():
 		if get_entity_type() == Entities.Apple:
 			nxt = dino_apple(size)
 			if nxt != None:
-				if nxt[0] != get_pos_x() or nxt[1] != get_pos_y():
-					target = nxt
+				target = nxt
 
+		# Never sit on an apple (old code continued forever when measure was None).
 		if target == None:
-			if get_entity_type() == Entities.Apple:
-				continue
 			target = [0, 0]
-
-		if get_pos_x() == target[0] and get_pos_y() == target[1]:
-			if get_entity_type() == Entities.Apple:
-				target = dino_apple(size)
-				eaten = eaten + 1
-				quick_print(eaten)
-				continue
-			target = dino_apple(size)
-			if target == None:
-				target = [0, 0]
-			continue
 
 		before_p = stock(Items.Pumpkin)
 		before_c = stock(Items.Cactus)

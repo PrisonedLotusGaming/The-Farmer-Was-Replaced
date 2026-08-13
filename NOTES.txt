@@ -55,7 +55,8 @@ each column. Then if unlocked:
 Dino
 ----
 Hamiltonian cycle + apple shortcuts; late game cycle-only.
-DINO_SIZE=8 via Debug_2 set_world_size; fill map; restore.
+DINO_SIZE=8 only when Debug_2 can shrink; else use full farm.
+Eating requires moving off the apple; never continue while sitting on one.
 dino_clear_tile fertilizer/till gated by unlocks.
 
 Maze
