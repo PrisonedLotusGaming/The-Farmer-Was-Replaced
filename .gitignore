@@ -23,9 +23,11 @@ assets/
 
 # Local publish notes (not for the public repo)
 GITHUB_READY.txt
+STEAM_GUIDE.txt
 
 # Steam guide paste sections (local only)
 steam-guide/
+**/steam-guide/
 
 # Secrets / env
 .env
