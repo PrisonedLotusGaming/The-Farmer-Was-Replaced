@@ -1,0 +1,20 @@
+[olist]
+[*] Open a code window in game.
+[*] Rename it to the step's window name (example: [b]starter_1[/b]).
+[*] Clear it, paste the step's code, run it.
+[*] While it farms, buy what that step lists.
+[*] When the step says [b]Next[/b], swap to that step's script.
+[/olist]
+
+One window is enough. Buy [b]Speed[/b] whenever it is cheap.
+
+Window names:
+[list]
+[*] Step 1: [b]starter_1[/b]
+[*] Step 2: [b]starter_2[/b]
+[*] Step 3: [b]starter_3[/b]
+[*] Step 4: [b]starter_4[/b]
+[*] Step 5: [b]starter_5[/b]
+[*] After Auto Unlock: [b]starter_6[/b]
+[*] Then: [b]afk_farm[/b]
+[/list]

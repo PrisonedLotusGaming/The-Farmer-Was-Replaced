@@ -1,0 +1,40 @@
+# Starter 2: after Expand rank 1 (1x3) + Watering ASAP
+# In-game window name: starter_2
+# Needs: Loops, Speed, Plant, Expand rank 1
+# Buy Watering (~50 wood) as soon as bushes can fund it, then Carrots.
+#
+# Phase A: bushes (+ water once Watering is owned)
+# Phase B: till() ONCE on the carrot tile, then stop
+# Phase C: maintain hay + wood + carrots + water (no till in loop)
+# Before Operators: bare use_item(Items.Water) is fine.
+# Plant cost: carrots spend hay + wood.
+
+# --- Phase A: bushes until Watering + Carrots ---
+while True:
+	if can_harvest():
+		harvest()
+	plant(Entities.Bush)
+	use_item(Items.Water)
+	move(North)
+
+# --- Phase B: one-time till on carrot tile only ---
+# till()
+
+# --- Phase C: maintain (carrot, hay, bush) + water ---
+# while True:
+# 	if can_harvest():
+# 		harvest()
+# 	plant(Entities.Carrot)
+# 	use_item(Items.Water)
+# 	move(North)
+#
+# 	if can_harvest():
+# 		harvest()
+# 	use_item(Items.Water)
+# 	move(North)
+#
+# 	if can_harvest():
+# 		harvest()
+# 	plant(Entities.Bush)
+# 	use_item(Items.Water)
+# 	move(North)

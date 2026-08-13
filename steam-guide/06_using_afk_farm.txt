@@ -1,0 +1,46 @@
+[h1]What afk_farm does each cycle[/h1]
+[olist]
+[*] Checks power (after you own [b]Sunflowers[/b])
+[*] Buys unlocks it can afford with [b]unlock()[/b]
+[*] Farms the field (1 pass, or 3 after you own [b]Polyculture[/b])
+[*] Runs dinosaurs when you own [b]Dinosaurs[/b] + [b]Hats[/b] and have food ready
+[*] Runs mazes when you own [b]Mazes[/b] and have Weird Substance ready
+[/olist]
+
+Missing features are skipped until unlocked. You do not need to rewrite windows for each new system.
+
+[h1]What unlocks turn on inside afk_farm[/h1]
+[list]
+[*] [b]Watering[/b]: waters tiles under half full (faster growth)
+[*] [b]Pumpkins[/b]: solid pumpkin square, replants [b]Dead_Pumpkin[/b], waits for giant, harvests at origin
+[*] [b]Cactus[/b]: grows, sorts, then harvests the cactus square
+[*] [b]Sunflowers[/b]: north sunflower strip + automatic power restock
+[*] [b]Polyculture[/b]: farms 3 times per cycle
+[*] [b]Megafarm[/b]: uses extra drones to go faster (until then, everything runs on one drone)
+[*] [b]Hats[/b] + [b]Dinosaurs[/b]: bone runs (can shrink to 8x8 with [b]Debug_2[/b], then restore)
+[*] [b]Mazes[/b]: Weird Substance maze treasure runs
+[/list]
+
+[h1]Late farm layout[/h1]
+[list]
+[*] Southwest: pumpkin square ([b]6x6[/b] on [b]8x8[/b]/[b]12x12[/b]; half-field on bigger farms)
+[*] Southeast: cactus square (same size)
+[*] Top rows: sunflowers (after unlock)
+[*] Free tiles: hay-heavy feed mix; sparse trees; carrots only when hay/wood stocks are healthy
+[*] If hay or wood runs low, free tiles refill that resource before planting more carrots
+[/list]
+
+[h1]Normal things that look scary[/h1]
+[list]
+[*] The whole farm becomes sunflowers, then returns to normal.
+Power restock ([b]Sunflowers[/b]).
+
+[*] The farm shrinks during dinosaur mode, then returns.
+Fast 8x8 dino clear ([b]Debug_2[/b]).
+
+[*] Early [b]afk_farm[/b] ignores mazes or dinosaurs.
+It is waiting for [b]Mazes[/b] / [b]Dinosaurs[/b] / [b]Hats[/b] and the matching resources.
+
+[*] It never stops alone.
+Stop the code window when you want control back.
+[/list]

@@ -1,0 +1,42 @@
+# Starter 3: hay + bush + carrot maintain + watering
+# In-game window name: starter_3
+# Needs: Loops, Speed, Plant, Carrots, Operators, Senses, Variables, Watering
+# Expand: buy rank 2 (3x3) with this script.
+#
+# (get_pos_x() + get_pos_y()) % 3
+#   0 = Grassland hay
+#   1 = Bush (wood)
+#   2 = Carrot
+# Water when get_water() < 0.5
+# When Trees unlocks, switch to starter_4.
+
+while True:
+	size = get_world_size()
+	x = 0
+	while x < size:
+		y = 0
+		while y < size:
+			if can_harvest():
+				harvest()
+
+			kind = (get_pos_x() + get_pos_y()) % 3
+
+			if kind == 0:
+				if get_ground_type() != Grounds.Grassland:
+					till()
+			elif kind == 1:
+				if get_ground_type() != Grounds.Grassland:
+					till()
+				plant(Entities.Bush)
+			else:
+				if get_ground_type() != Grounds.Soil:
+					till()
+				plant(Entities.Carrot)
+
+			if get_water() < 0.5:
+				use_item(Items.Water)
+
+			move(North)
+			y = y + 1
+		move(East)
+		x = x + 1

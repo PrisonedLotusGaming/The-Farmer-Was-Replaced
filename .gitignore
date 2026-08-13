@@ -1,0 +1,29 @@
+# Local ignore — do not commit junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+*~
+.vscode/
+.idea/
+*.code-workspace
+
+# Cursor / local agent leftovers
+.cursor/
+agent-transcripts/
+assets/
+
+# Old / generated guide art (keep scripts only)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+
+# Local publish notes (not for the public repo)
+GITHUB_READY.txt
+
+# Secrets / env
+.env
+.env.*

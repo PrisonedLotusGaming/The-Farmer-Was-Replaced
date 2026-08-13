@@ -1,0 +1,16 @@
+Follow [b]Step 0[/b] through [b]Step 5[/b] in order. One code window. Swap the script when the step says so. Do not paste [b]afk_farm[/b] until you own [b]Auto Unlock[/b].
+
+[b]Speed tip:[/b] Buy [b]Speed[/b] ranks whenever they are cheap.
+
+[b]Watering tip:[/b] Buy [b]Watering[/b] as soon as you can (about [b]50 wood[/b], right after you can farm bushes). Watered crops grow much faster (up to about [b]5x[/b]). Free water tanks refill over time. From Step 2 on, scripts water tiles as they go.
+
+[b]Plant costs (hover [b]plant()[/b] in-game for your numbers):[/b]
+[list]
+[*] [b]Carrot[/b]: hay + wood each plant (cost rises when you upgrade Carrots)
+[*] [b]Pumpkin[/b]: carrots each plant (cost rises when you upgrade Pumpkins)
+[*] [b]Bush / Tree[/b]: free
+[/list]
+
+Do [b]not[/b] grind a huge stockpile then switch. Early scripts [b]keep hay and wood growing on other tiles[/b] while carrots run. Pumpkins need a [b]solid square[/b] (up to [b]6x6[/b]) plus a [b]hay-heavy feed rim[/b] (carrots still grow there too). Prefer [b]Speed[/b] / [b]Expand[/b] / [b]Grass[/b] / [b]Watering[/b] over upgrading Carrots/Pumpkins early, or plant cost gets very high.
+
+[b]Expand ranks:[/b] 1st = [b]1[/b] -> [b]1x3[/b]. 2nd = [b]1x3[/b] -> [b]3x3[/b]. Later sizes jump (example [b]8x8[/b] -> [b]12x12[/b]). Check the tree for the next size.

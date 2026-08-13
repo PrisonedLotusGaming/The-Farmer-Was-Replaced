@@ -1,0 +1,64 @@
+Single source: afk_farm.txt only
+----------------------------
+All live game code lives in afk_farm.txt. Old multi-window modules were removed.
+
+Shareable / progressive
+-----------------------
+Script is gated for early-to-endgame. Helpers use have(Unlocks.*) so till,
+water, fertilizer, hats, sunflowers, pumpkins, cactus, mazes, dinosaurs, and
+megafarm features only run when unlocked. Power thresholds are lower before
+Megafarm (30/80) and use POWER_LOW/POWER_TARGET after.
+
+Standing constraints
+--------------------
+- Full window paste, not snippets
+- No dictionaries in live code until Dictionaries unlocked (visited uses flat lists)
+- Never iterate get_cost results
+- Intentional while True only at bottom of afk_farm
+- Prefer while + index over for-in on unknown collections
+- Tabs for indentation
+
+Plant costs / feed
+------------------
+Carrots spend hay+wood; pumpkins spend carrots (costs rise with crop upgrades).
+want_feed() checks num_items against feed_buffer() (size*size, min 100).
+Low hay -> grass. Low wood -> sparse trees. Healthy -> hay-heavy mix + some carrots.
+Water when get_water() < 0.5.
+
+Expand / pumpkin square
+-----------------------
+Farm size jumps (1->1x3->3x3->...->8x8->12x12).
+region_n: 6x6 on sizes 8..12; half-field on larger maps.
+pumpkin_care_tile: only Entities.Pumpkin+can_harvest is ready; Dead_Pumpkin
+and wrong crops (leftover carrots) are cleared/replanted. Harvest at (0,0)
+after the whole square is ready.
+
+Step flow
+---------
+wear_straw (if Hats)
+ensure_power (no-op without Sunflowers)
+buy_all
+farm_pass x farm_pass_count()  # 3 with Polyculture, else 1
+ensure_power between phases
+dino_run if Dinosaurs (+ Hats, food; shrink only with Debug_2)
+maze_run if Mazes (+ substance; power gate only with Sunflowers)
+buy_all between phases
+
+Farm
+----
+try_spawn() only calls spawn_drone after Megafarm; otherwise one drone runs
+each column. Then if unlocked:
+1. pumpkin_wait_and_harvest
+2. cactus_wait_sort_and_harvest
+3. multi-drone sunflower strip harvest (falls back to single drone)
+
+Dino
+----
+Hamiltonian cycle + apple shortcuts; late game cycle-only.
+DINO_SIZE=8 via Debug_2 set_world_size; fill map; restore.
+dino_clear_tile fertilizer/till gated by unlocks.
+
+Maze
+----
+Up to MAZE_DRONES workers with direction deviation + measure guidance.
+Timeout: get_tick_count if Timing, else steps max size*size*40.

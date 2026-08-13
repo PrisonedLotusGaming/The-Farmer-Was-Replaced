@@ -1,0 +1,8 @@
+The Steam guide is split into per-section files for easier updates:
+
+  steam-guide/
+
+See steam-guide/README.txt for the Steam section title -> file map.
+
+When something changes, update only the listed .txt file(s) in Steam.
+Do not maintain guide content in this file anymore.

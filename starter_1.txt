@@ -1,0 +1,8 @@
+# Starter 1: hay on starting tile (before Expand)
+# In-game window name: starter_1
+# Needs: Loops, Speed
+# Buy Plant (50 hay), then go to starter_2 / Step 2 for Expand rank 1 (1x3).
+
+while True:
+	if can_harvest():
+		harvest()

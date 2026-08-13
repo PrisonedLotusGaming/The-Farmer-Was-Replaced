@@ -1,0 +1,39 @@
+# Starter 4: sparse trees + hay + carrots + watering
+# In-game window name: starter_4
+# Needs: Loops, Expand, Plant, Carrots, Operators, Senses, Variables, Trees, Watering
+#
+# Trees only when (x+y)%4 == 0 (not N/S/E/W adjacent).
+# %4 == 1: hay | %4 == 2 or 3: carrot
+# Water when get_water() < 0.5
+# When Pumpkins unlocks, use starter_5.
+
+while True:
+	size = get_world_size()
+	x = 0
+	while x < size:
+		y = 0
+		while y < size:
+			if can_harvest():
+				harvest()
+
+			spot = get_pos_x() + get_pos_y()
+
+			if spot % 4 == 0:
+				if get_ground_type() != Grounds.Grassland:
+					till()
+				plant(Entities.Tree)
+			elif spot % 4 == 1:
+				if get_ground_type() != Grounds.Grassland:
+					till()
+			else:
+				if get_ground_type() != Grounds.Soil:
+					till()
+				plant(Entities.Carrot)
+
+			if get_water() < 0.5:
+				use_item(Items.Water)
+
+			move(North)
+			y = y + 1
+		move(East)
+		x = x + 1

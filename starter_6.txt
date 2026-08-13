@@ -1,0 +1,68 @@
+# Starter 6: auto-buy test (ONLY after Auto Unlock)
+# In-game window name: starter_6
+# Needs: Unlock Order through Auto Unlock
+# Checks hay/wood and refills the short resource before planting carrots.
+# When this runs cleanly, rename the window to afk_farm and paste afk_farm.txt.
+
+def buy():
+	unlock(Unlocks.Speed)
+	unlock(Unlocks.Expand)
+	unlock(Unlocks.Plant)
+	unlock(Unlocks.Grass)
+	unlock(Unlocks.Watering)
+	unlock(Unlocks.Trees)
+	unlock(Unlocks.Carrots)
+	unlock(Unlocks.Pumpkins)
+	unlock(Unlocks.Fertilizer)
+	unlock(Unlocks.Sunflowers)
+	unlock(Unlocks.Cactus)
+	unlock(Unlocks.Mazes)
+	unlock(Unlocks.Polyculture)
+	unlock(Unlocks.Dinosaurs)
+	unlock(Unlocks.Megafarm)
+	unlock(Unlocks.Hats)
+	unlock(Unlocks.Debug)
+	unlock(Unlocks.Debug_2)
+
+def farm_once():
+	size = get_world_size()
+	buffer = size * size
+	if buffer < 100:
+		buffer = 100
+
+	x = 0
+	while x < size:
+		y = 0
+		while y < size:
+			if can_harvest():
+				harvest()
+
+			hay = num_items(Items.Hay)
+			wood = num_items(Items.Wood)
+			spot = get_pos_x() + get_pos_y()
+
+			if hay < buffer or wood < buffer:
+				if hay <= wood:
+					if get_ground_type() != Grounds.Grassland:
+						till()
+				else:
+					if get_ground_type() != Grounds.Grassland:
+						till()
+					if spot % 2 == 0:
+						plant(Entities.Tree)
+			else:
+				if get_ground_type() != Grounds.Soil:
+					till()
+				plant(Entities.Carrot)
+
+			if get_water() < 0.5:
+				use_item(Items.Water)
+
+			move(North)
+			y = y + 1
+		move(East)
+		x = x + 1
+
+while True:
+	buy()
+	farm_once()

@@ -1,0 +1,1396 @@
+# afk_farm — Shareable AFK from early game to endgame. Single window. No imports.
+# In-game window name: afk_farm
+# Hard load requirements: finish Unlock Order through Auto Unlock first.
+# Auto Unlock costs 5k pumpkins; Dictionaries + Costs are 2.5k pumpkins each.
+# Pumpkins must be unlocked before those. See steam-guide Unlock Order.
+# Plant costs scale with crop upgrades (carrots spend hay+wood; pumpkins spend carrots).
+# Free tiles refill hay/wood when stocks are low. Pumpkin square stays solid for giants.
+# Expand sizes jump (1->1x3->3x3->...->8x8->12x12). region_n uses 6x6 on 8..12 farms.
+# Megafarm is NOT required to start. try_spawn() no-ops until Megafarm; one drone farms.
+# Do NOT put early coding unlocks in PRIORITY (naming them before owned errors on load).
+# If any other Unlocks.* name errors on load, delete that line from PRIORITY.
+# (Dict / get_cost loops hang until Unlocks.Dictionaries.)
+
+PRIORITY = [
+	# Own Auto Unlock before this script. Coding path unlocks are NOT listed here
+	# (naming Unlocks.Variables / similar before owned errors on load).
+	Unlocks.Auto_Unlock,
+	Unlocks.Speed,
+	Unlocks.Expand,
+	Unlocks.Plant,
+	Unlocks.Watering,
+	Unlocks.Grass,
+	Unlocks.Trees,
+	Unlocks.Carrots,
+	Unlocks.Pumpkins,
+	Unlocks.Fertilizer,
+	Unlocks.Sunflowers,
+	Unlocks.Cactus,
+	Unlocks.Mazes,
+	Unlocks.Polyculture,
+	Unlocks.Dinosaurs,
+	Unlocks.Megafarm,
+	Unlocks.Hats,
+	Unlocks.Debug,
+	Unlocks.Debug_2,
+	Unlocks.Timing,
+	Unlocks.Dictionaries,
+	Unlocks.Simulation,
+	Unlocks.Utilities,
+	Unlocks.Leaderboard,
+	Unlocks.Top_Hat,
+	Unlocks.The_Farmers_Remains,
+]
+
+TRACK = [
+	Items.Hay,
+	Items.Wood,
+	Items.Carrot,
+	Items.Pumpkin,
+	Items.Cactus,
+	Items.Power,
+	Items.Weird_Substance,
+	Items.Gold,
+	Items.Bone,
+]
+
+MAZE_TIMEOUT = 200000
+MAZE_RUNS = 5
+MAZE_DRONES = 8
+DINO_MAX_STEPS = 200000
+DINO_SIZE = 8
+
+POWER_LOW = 200
+POWER_TARGET = 2000
+POWER_MAX_ROUNDS = 120
+
+PUMPKIN_MAX_ROUNDS = 60
+CACTUS_MAX_ROUNDS = 60
+CACTUS_SORT_ROUNDS = 2
+FARM_PASSES_BEFORE_SPECIAL = 3
+
+def have(u):
+	return num_unlocked(u) > 0
+
+def can_multi():
+	# spawn_drone / wait_for need Megafarm. Without it, run everything on one drone.
+	return have(Unlocks.Megafarm)
+
+def try_spawn(fn, arg):
+	if not can_multi():
+		return None
+	d = spawn_drone(fn, arg)
+	if d == False:
+		return None
+	return d
+
+def power_low_need():
+	if have(Unlocks.Megafarm):
+		return POWER_LOW
+	return 30
+
+def power_target_need():
+	if have(Unlocks.Megafarm):
+		return POWER_TARGET
+	return 80
+
+def wear_straw():
+	if have(Unlocks.Hats):
+		change_hat(Hats.Straw_Hat)
+
+def move_to(tx, ty):
+	size = get_world_size()
+	x = get_pos_x()
+	east = (tx - x) % size
+	west = (x - tx) % size
+	if east <= west:
+		i = 0
+		while i < east:
+			move(East)
+			i = i + 1
+	else:
+		i = 0
+		while i < west:
+			move(West)
+			i = i + 1
+
+	y = get_pos_y()
+	north = (ty - y) % size
+	south = (y - ty) % size
+	if north <= south:
+		i = 0
+		while i < north:
+			move(North)
+			i = i + 1
+	else:
+		i = 0
+		while i < south:
+			move(South)
+			i = i + 1
+
+def go_home():
+	move_to(0, 0)
+
+def ensure_ground(ground):
+	# till unlocks with Carrots.
+	if not have(Unlocks.Carrots):
+		return
+	if get_ground_type() != ground:
+		till()
+
+def water_if_needed():
+	if not have(Unlocks.Watering):
+		return
+	if get_water() < 0.5:
+		use_item(Items.Water)
+
+def stock(item):
+	return num_items(item)
+
+def feed_buffer():
+	# Keep enough hay/wood to plant carrots across the farm (costs rise with upgrades).
+	size = get_world_size()
+	b = size * size
+	if b < 100:
+		b = 100
+	return b
+
+def fertilize():
+	# Fertilizer infects the plant and turns half the harvest into Weird_Substance.
+	# Only use it when we actually need substance for mazes.
+	if not have(Unlocks.Fertilizer):
+		return False
+	if stock(Items.Fertilizer) < 1:
+		return False
+	need = maze_substance_needed()
+	if need < 1:
+		need = get_world_size()
+	if stock(Items.Weird_Substance) >= need:
+		return False
+	use_item(Items.Fertilizer)
+	return True
+
+def snapshot():
+	out = []
+	i = 0
+	while i < len(TRACK):
+		out.append(stock(TRACK[i]))
+		i = i + 1
+	return out
+
+def spent_since(before):
+	i = 0
+	while i < len(TRACK):
+		if stock(TRACK[i]) < before[i]:
+			return True
+		i = i + 1
+	return False
+
+def buy_all():
+	bought = 0
+	i = 0
+	while i < len(PRIORITY):
+		before = snapshot()
+		unlock(PRIORITY[i])
+		if spent_since(before):
+			bought = bought + 1
+			quick_print("unlocked")
+		i = i + 1
+	return bought
+
+def region_n(size):
+	# Pumpkin / cactus square size.
+	# 8x8 and 12x12: fixed 6x6 (max giant multiplier + feed rim).
+	# Larger farms: half-field for more absolute pumpkin/cactus yield.
+	if size >= 8:
+		if size <= 12:
+			n = 6
+		else:
+			n = size // 2
+	else:
+		n = size // 2
+	if n < 1:
+		n = 1
+	if n > size:
+		n = size
+	return n
+
+def sunflower_rows(size):
+	r = 3
+	if size < 8:
+		r = 2
+	if r > size:
+		r = size
+	return r
+
+def want_feed(x, y):
+	# Free-zone crop when carrots are unlocked. Prefer hay/wood if stocks are low.
+	buf = feed_buffer()
+	hay = stock(Items.Hay)
+	wood = stock(Items.Wood)
+	spot = x + y
+
+	if hay < buf or wood < buf:
+		if hay <= wood:
+			return Entities.Grass
+		if have(Unlocks.Trees):
+			if spot % 2 == 0:
+				return Entities.Tree
+			return Entities.Grass
+		if have(Unlocks.Plant):
+			return Entities.Bush
+		return Entities.Grass
+
+	# Healthy stocks: hay-heavy rim, sparse trees, some carrots.
+	if have(Unlocks.Trees):
+		if spot % 8 == 0:
+			return Entities.Tree
+	if spot % 8 <= 5:
+		return Entities.Grass
+	return Entities.Carrot
+
+def want(x, y, size):
+	n = region_n(size)
+	cx0 = size - n
+	sf_y0 = size - sunflower_rows(size)
+
+	if have(Unlocks.Pumpkins):
+		if x < n and y < n:
+			return Entities.Pumpkin
+
+	if have(Unlocks.Cactus):
+		if x >= cx0 and y < n:
+			return Entities.Cactus
+
+	if have(Unlocks.Sunflowers):
+		if y >= sf_y0:
+			return Entities.Sunflower
+
+	if have(Unlocks.Carrots):
+		return want_feed(x, y)
+
+	if have(Unlocks.Trees):
+		if (x + y) % 2 == 0:
+			return Entities.Tree
+		return Entities.Grass
+
+	if have(Unlocks.Plant):
+		if (x + y) % 2 == 0:
+			return Entities.Bush
+		return Entities.Grass
+
+	return Entities.Grass
+
+def plant_entity(entity):
+	if entity == Entities.Tree:
+		ensure_ground(Grounds.Grassland)
+		plant(Entities.Tree)
+		water_if_needed()
+		return
+	if entity == Entities.Bush:
+		ensure_ground(Grounds.Grassland)
+		plant(Entities.Bush)
+		if have(Unlocks.Fertilizer):
+			fertilize()
+		water_if_needed()
+		return
+	if entity == Entities.Grass:
+		if have(Unlocks.Carrots):
+			ensure_ground(Grounds.Grassland)
+		water_if_needed()
+		return
+	# Soil crops: carrots, pumpkins, cactus, sunflowers.
+	if have(Unlocks.Carrots):
+		ensure_ground(Grounds.Soil)
+	plant(entity)
+	if have(Unlocks.Fertilizer):
+		if entity == Entities.Pumpkin or entity == Entities.Bush:
+			fertilize()
+	water_if_needed()
+
+def care_here(x, y, size):
+	wanted = want(x, y, size)
+	entity = get_entity_type()
+
+	# Pumpkin / cactus get a dedicated multi-drone finish phase.
+	# Here we only plant missing tiles; never harvest mature ones early.
+	if wanted == Entities.Pumpkin:
+		pumpkin_care_tile()
+		return
+
+	if wanted == Entities.Cactus:
+		cactus_care_tile()
+		return
+
+	if can_harvest():
+		harvest()
+
+	entity = get_entity_type()
+	if entity != wanted:
+		if entity != None:
+			clear_for_plant()
+		plant_entity(wanted)
+	else:
+		water_if_needed()
+
+def clear_for_plant():
+	# Remove leftover crops (sunflowers after power restock, etc.).
+	if can_harvest():
+		harvest()
+	ent = get_entity_type()
+	if ent == None:
+		return
+	if not can_harvest():
+		if have(Unlocks.Fertilizer):
+			if stock(Items.Fertilizer) > 0:
+				use_item(Items.Fertilizer)
+		if can_harvest():
+			harvest()
+	ent = get_entity_type()
+	if ent != None:
+		if have(Unlocks.Carrots):
+			till()
+
+def pumpkin_care_tile():
+	# Grow only. Never harvest here; giant forms when the whole square is ready.
+	# Only Entities.Pumpkin + can_harvest counts as ready (not leftover carrots).
+	ensure_ground(Grounds.Soil)
+	entity = get_entity_type()
+
+	if entity == Entities.Dead_Pumpkin:
+		plant(Entities.Pumpkin)
+		fertilize()
+		water_if_needed()
+		return False
+
+	if entity == Entities.Pumpkin:
+		if can_harvest():
+			return True
+		water_if_needed()
+		return False
+
+	# Empty or wrong crop (carrots left after Expand, sunflowers after power, etc.).
+	if entity != None:
+		clear_for_plant()
+		ensure_ground(Grounds.Soil)
+	plant_entity(Entities.Pumpkin)
+	return False
+
+def cactus_care_tile():
+	# Grow only. Sort + harvest happen after every cactus is ready.
+	ensure_ground(Grounds.Soil)
+	entity = get_entity_type()
+
+	if entity != None and entity != Entities.Cactus:
+		clear_for_plant()
+		ensure_ground(Grounds.Soil)
+		plant_entity(Entities.Cactus)
+		water_if_needed()
+		return False
+
+	entity = get_entity_type()
+	if entity == Entities.Cactus:
+		water_if_needed()
+		return can_harvest()
+
+	plant_entity(Entities.Cactus)
+	water_if_needed()
+	return False
+
+def run_index_drones(fn, count):
+	# Spawn fn(0)..fn(count-1). Without Megafarm, runs them one at a time.
+	handles = []
+	all_ok = True
+	i = 0
+	while i < count:
+		d = try_spawn(fn, i)
+		if d == None:
+			result = fn(i)
+			if result == False:
+				all_ok = False
+		else:
+			handles.append(d)
+		i = i + 1
+
+	i = 0
+	while i < len(handles):
+		result = wait_for(handles[i])
+		if result == False:
+			all_ok = False
+		i = i + 1
+	return all_ok
+
+def run_world_x_drones(fn, x0, count):
+	handles = []
+	all_ok = True
+	i = 0
+	while i < count:
+		x = x0 + i
+		d = try_spawn(fn, x)
+		if d == None:
+			result = fn(x)
+			if result == False:
+				all_ok = False
+		else:
+			handles.append(d)
+		i = i + 1
+
+	i = 0
+	while i < len(handles):
+		result = wait_for(handles[i])
+		if result == False:
+			all_ok = False
+		i = i + 1
+	return all_ok
+
+def pumpkin_care_column(x):
+	size = get_world_size()
+	n = region_n(size)
+	ready = True
+	move_to(x, 0)
+	y = 0
+	while y < n:
+		if not pumpkin_care_tile():
+			ready = False
+		if y < n - 1:
+			move(North)
+		y = y + 1
+	return ready
+
+def pumpkin_wait_and_harvest():
+	if not have(Unlocks.Pumpkins):
+		return False
+
+	size = get_world_size()
+	n = region_n(size)
+	quick_print("pumpkin wait")
+
+	rounds = 0
+	while rounds < PUMPKIN_MAX_ROUNDS:
+		ready = run_world_x_drones(pumpkin_care_column, 0, n)
+		if ready:
+			move_to(0, 0)
+			if can_harvest():
+				harvest()
+				quick_print("pumpkin done")
+				return True
+			# Ready flags lied or merge lag: keep watering one more cycle.
+		rounds = rounds + 1
+
+	# Partial giant fallback: harvest whatever is ready at origin.
+	move_to(0, 0)
+	if can_harvest():
+		harvest()
+		quick_print("pumpkin partial")
+		return True
+	quick_print("pumpkin stall")
+	return False
+
+def cactus_care_column(x):
+	size = get_world_size()
+	n = region_n(size)
+	ready = True
+	move_to(x, 0)
+	y = 0
+	while y < n:
+		if not cactus_care_tile():
+			ready = False
+		if y < n - 1:
+			move(North)
+		y = y + 1
+	return ready
+
+def cactus_sort_row(y):
+	# Full bubble of one cactus row (East swaps).
+	size = get_world_size()
+	n = region_n(size)
+	cx0 = size - n
+	p = 0
+	while p < n:
+		x = 0
+		while x < n - 1:
+			move_to(cx0 + x, y)
+			a = measure()
+			b = measure(East)
+			if a != None and b != None:
+				if a > b:
+					swap(East)
+			x = x + 1
+		p = p + 1
+	return True
+
+def cactus_sort_col(x):
+	# Full bubble of one cactus column (North swaps). x is world x.
+	size = get_world_size()
+	n = region_n(size)
+	p = 0
+	while p < n:
+		y = 0
+		while y < n - 1:
+			move_to(x, y)
+			a = measure()
+			b = measure(North)
+			if a != None and b != None:
+				if a > b:
+					swap(North)
+			y = y + 1
+		p = p + 1
+	return True
+
+def cactus_wait_sort_and_harvest():
+	if not have(Unlocks.Cactus):
+		return False
+
+	size = get_world_size()
+	n = region_n(size)
+	cx0 = size - n
+	quick_print("cactus wait")
+
+	rounds = 0
+	while rounds < CACTUS_MAX_ROUNDS:
+		ready = run_world_x_drones(cactus_care_column, cx0, n)
+		if ready:
+			break
+		rounds = rounds + 1
+
+	if rounds >= CACTUS_MAX_ROUNDS:
+		quick_print("cactus stall grow")
+
+	# Multi-drone sort: all rows in parallel, then all columns.
+	s = 0
+	while s < CACTUS_SORT_ROUNDS:
+		run_index_drones(cactus_sort_row, n)
+		run_world_x_drones(cactus_sort_col, cx0, n)
+		s = s + 1
+
+	move_to(cx0, 0)
+	if can_harvest():
+		harvest()
+		quick_print("cactus done")
+		return True
+	quick_print("cactus stall harvest")
+	return False
+
+def sunflower_harvest_column(x):
+	# Only the north sunflower strip for this column.
+	size = get_world_size()
+	y0 = size - sunflower_rows(size)
+	move_to(x, y0)
+	y = y0
+	while y < size:
+		if get_entity_type() == Entities.Sunflower and can_harvest():
+			harvest()
+		if y < size - 1:
+			move(North)
+		y = y + 1
+	return True
+
+def harvest_best_sunflowers(size):
+	if not have(Unlocks.Sunflowers):
+		return
+	quick_print("sunflower harvest")
+	run_world_x_drones(sunflower_harvest_column, 0, size)
+
+def power_plant_column(x):
+	size = get_world_size()
+	move_to(x, 0)
+	y = 0
+	while y < size:
+		ensure_ground(Grounds.Soil)
+		if get_entity_type() != Entities.Sunflower:
+			if can_harvest():
+				harvest()
+			plant(Entities.Sunflower)
+		if have(Unlocks.Watering):
+			if get_water() < 0.8:
+				use_item(Items.Water)
+		if y < size - 1:
+			move(North)
+		y = y + 1
+
+def power_harvest_column(x):
+	size = get_world_size()
+	harvested = 0
+	move_to(x, 0)
+	y = 0
+	while y < size:
+		if get_entity_type() == Entities.Sunflower and can_harvest():
+			harvest()
+			plant(Entities.Sunflower)
+			if have(Unlocks.Watering):
+				if get_water() < 0.8:
+					use_item(Items.Water)
+			harvested = harvested + 1
+		if y < size - 1:
+			move(North)
+		y = y + 1
+	return harvested
+
+def power_run_columns(fn):
+	# One drone per column across the full farm (single-drone if no Megafarm).
+	size = get_world_size()
+	handles = []
+	total = 0
+	x = 0
+	while x < size:
+		d = try_spawn(fn, x)
+		if d == None:
+			result = fn(x)
+			if result != None:
+				total = total + result
+		else:
+			handles.append(d)
+		x = x + 1
+
+	i = 0
+	while i < len(handles):
+		result = wait_for(handles[i])
+		if result != None:
+			total = total + result
+		i = i + 1
+	return total
+
+def power_restock():
+	if not have(Unlocks.Sunflowers):
+		quick_print("power skip: locked")
+		return False
+	low = power_low_need()
+	target = power_target_need()
+	if stock(Items.Power) >= low:
+		return False
+
+	quick_print("power restock")
+	wear_straw()
+	go_home()
+
+	# Full-size mono sunflower field with multi-drone columns.
+	power_run_columns(power_plant_column)
+
+	rounds = 0
+	idle = 0
+	while stock(Items.Power) < target and rounds < POWER_MAX_ROUNDS:
+		before = stock(Items.Power)
+		got = power_run_columns(power_harvest_column)
+		after = stock(Items.Power)
+
+		if got <= 0:
+			power_run_columns(power_plant_column)
+			idle = idle + 1
+			if idle > 10:
+				quick_print("power stall")
+				break
+		elif after + 1 < before:
+			quick_print("power net loss")
+			idle = idle + 1
+			if idle > 3:
+				break
+		else:
+			idle = 0
+		rounds = rounds + 1
+
+	go_home()
+	# Mono sunflower field wiped the layout. Replant pumpkins/cactus/etc now.
+	quick_print("restore crops")
+	size = get_world_size()
+	run_world_x_drones(care_column, 0, size)
+	go_home()
+	quick_print(stock(Items.Power))
+	quick_print("power ok")
+	return True
+
+def care_column(x):
+	size = get_world_size()
+	move_to(x, 0)
+	y = 0
+	while y < size:
+		care_here(x, y, size)
+		if y < size - 1:
+			move(North)
+		y = y + 1
+	return True
+
+def farm_pass_count():
+	if have(Unlocks.Polyculture):
+		return FARM_PASSES_BEFORE_SPECIAL
+	return 1
+
+def farm_pass():
+	wear_straw()
+	size = get_world_size()
+	quick_print("farm")
+	go_home()
+
+	# Megafarm: one drone per column. Otherwise run every column on this drone.
+	handles = []
+	x = 0
+	while x < size:
+		d = try_spawn(care_column, x)
+		if d == None:
+			care_column(x)
+		else:
+			handles.append(d)
+		x = x + 1
+
+	i = 0
+	while i < len(handles):
+		wait_for(handles[i])
+		i = i + 1
+
+	# Dedicated finish: grow to max, then harvest once.
+	if have(Unlocks.Pumpkins):
+		pumpkin_wait_and_harvest()
+	if have(Unlocks.Cactus):
+		cactus_wait_sort_and_harvest()
+	if have(Unlocks.Sunflowers):
+		harvest_best_sunflowers(size)
+	go_home()
+	quick_print("farm done")
+
+def maze_opposite(d):
+	if d == North:
+		return South
+	if d == South:
+		return North
+	if d == East:
+		return West
+	return East
+
+def maze_idx(x, y, size):
+	return y * size + x
+
+def maze_substance_needed():
+	level = num_unlocked(Unlocks.Mazes)
+	if level < 1:
+		return 0
+	return get_world_size() * 2**(level - 1)
+
+def maze_dirs(dev):
+	# Rotate exploration order so each drone prefers a different first branch.
+	base = [North, East, South, West]
+	dirs = []
+	i = 0
+	while i < 4:
+		dirs.append(base[(i + dev) % 4])
+		i = i + 1
+	return dirs
+
+def maze_step(d, x, y):
+	nx = x
+	ny = y
+	if d == East:
+		nx = x + 1
+	if d == West:
+		nx = x - 1
+	if d == North:
+		ny = y + 1
+	if d == South:
+		ny = y - 1
+	return [nx, ny]
+
+def maze_goal():
+	# measure() returns treasure (x, y) from any maze tile when available.
+	v = measure()
+	if v == None:
+		return None
+	return v
+
+def maze_pick_dir(dirs, visited, size, tx, ty):
+	x = get_pos_x()
+	y = get_pos_y()
+
+	# If we know the treasure, prefer unvisited moves that get closer.
+	if tx != None:
+		best = None
+		best_dist = 999999
+		di = 0
+		while di < 4:
+			d = dirs[di]
+			if can_move(d):
+				nxy = maze_step(d, x, y)
+				nx = nxy[0]
+				ny = nxy[1]
+				if nx >= 0 and ny >= 0 and nx < size and ny < size:
+					if not visited[maze_idx(nx, ny, size)]:
+						dist = abs(nx - tx) + abs(ny - ty)
+						if dist < best_dist:
+							best_dist = dist
+							best = d
+			di = di + 1
+		if best != None:
+			return best
+
+	# Deviation order: first legal unvisited branch.
+	di = 0
+	while di < 4:
+		d = dirs[di]
+		if can_move(d):
+			nxy = maze_step(d, x, y)
+			nx = nxy[0]
+			ny = nxy[1]
+			if nx >= 0 and ny >= 0 and nx < size and ny < size:
+				if not visited[maze_idx(nx, ny, size)]:
+					return d
+		di = di + 1
+	return None
+
+def maze_diverge(dev):
+	# Take a few unique wall-hand steps so drones split before the main search.
+	dirs = [North, East, South, West]
+	facing = dev % 4
+	# Even drones: right-hand. Odd drones: left-hand.
+	right_hand = (dev % 2) == 0
+	steps = 0
+	limit = (dev % 6) + 2
+	while steps < limit:
+		if get_entity_type() == Entities.Treasure:
+			return True
+		if right_hand:
+			turn = (facing + 1) % 4
+			other = (facing + 3) % 4
+		else:
+			turn = (facing + 3) % 4
+			other = (facing + 1) % 4
+
+		if can_move(dirs[turn]):
+			facing = turn
+			move(dirs[facing])
+		elif can_move(dirs[facing]):
+			move(dirs[facing])
+		elif can_move(dirs[other]):
+			facing = other
+			move(dirs[facing])
+		else:
+			facing = (facing + 2) % 4
+			if can_move(dirs[facing]):
+				move(dirs[facing])
+			else:
+				return False
+		steps = steps + 1
+	return False
+
+def maze_solve_dev(size, dev):
+	# DFS with rotated branch order + measure-guided picks.
+	visited = []
+	i = 0
+	while i < size * size:
+		visited.append(False)
+		i = i + 1
+
+	path = []
+	dirs = maze_dirs(dev)
+	use_ticks = have(Unlocks.Timing)
+	start = 0
+	if use_ticks:
+		start = get_tick_count()
+	steps = 0
+	step_limit = size * size * 40
+	seen_goal = False
+
+	if maze_diverge(dev):
+		if get_entity_type() == Entities.Treasure:
+			harvest()
+			return True
+
+	while get_entity_type() != Entities.Treasure:
+		if use_ticks:
+			if get_tick_count() - start > MAZE_TIMEOUT:
+				quick_print("maze timeout")
+				return False
+		else:
+			steps = steps + 1
+			if steps > step_limit:
+				quick_print("maze timeout")
+				return False
+
+		x = get_pos_x()
+		y = get_pos_y()
+		visited[maze_idx(x, y, size)] = True
+
+		goal = maze_goal()
+		tx = None
+		ty = None
+		if goal != None:
+			tx = goal[0]
+			ty = goal[1]
+			seen_goal = True
+		else:
+			# Treasure already claimed by another drone.
+			if seen_goal:
+				return False
+
+		d = maze_pick_dir(dirs, visited, size, tx, ty)
+		if d != None:
+			if move(d):
+				path.append(d)
+			else:
+				if len(path) == 0:
+					return False
+				back = maze_opposite(path.pop())
+				if not move(back):
+					return False
+		else:
+			if len(path) == 0:
+				return False
+			back = maze_opposite(path.pop())
+			if not move(back):
+				return False
+
+	harvest()
+	return True
+
+def maze_worker(dev):
+	size = get_world_size()
+	return maze_solve_dev(size, dev)
+
+def maze_solve_parallel(size):
+	# Main searches with deviation 0; extras get 1..MAZE_DRONES-1 (needs Megafarm).
+	handles = []
+	dev = 1
+	while dev < MAZE_DRONES:
+		d = try_spawn(maze_worker, dev)
+		if d == None:
+			break
+		handles.append(d)
+		dev = dev + 1
+
+	quick_print(1 + len(handles))
+	found = maze_worker(0)
+
+	i = 0
+	while i < len(handles):
+		result = wait_for(handles[i])
+		if result:
+			found = True
+		i = i + 1
+	return found
+
+def maze_run():
+	if not have(Unlocks.Mazes):
+		return False
+	needed = maze_substance_needed()
+	if needed <= 0:
+		return False
+	if stock(Items.Weird_Substance) < needed:
+		return False
+	if have(Unlocks.Sunflowers):
+		if stock(Items.Power) < power_low_need():
+			return False
+
+	quick_print("maze")
+	wear_straw()
+	go_home()
+	size = get_world_size()
+
+	if have(Unlocks.Carrots):
+		if get_ground_type() != Grounds.Grassland:
+			till()
+	if can_harvest():
+		harvest()
+	plant(Entities.Bush)
+	use_item(Items.Weird_Substance, needed)
+
+	runs = 0
+	while runs < MAZE_RUNS:
+		if get_entity_type() != Entities.Hedge and get_entity_type() != Entities.Treasure:
+			# After a harvest, maze may already be cleared; stop the batch.
+			if runs > 0:
+				break
+		if not maze_solve_parallel(size):
+			break
+		runs = runs + 1
+		# Reuse maze if treasure was relocated / still present; else stop.
+		if get_entity_type() != Entities.Treasure and get_entity_type() != Entities.Hedge:
+			break
+		# Top up substance for another treasure cycle when possible.
+		if stock(Items.Weird_Substance) >= needed:
+			if get_entity_type() == Entities.Treasure or get_entity_type() == Entities.Hedge:
+				use_item(Items.Weird_Substance, needed)
+
+	wear_straw()
+	go_home()
+	quick_print("maze done")
+	return True
+
+def dino_clear_tile():
+	# Harvest everything possible on this tile before wipe.
+	if can_harvest():
+		harvest()
+
+	ent = get_entity_type()
+	if ent == Entities.Dead_Pumpkin:
+		plant(Entities.Bush)
+		if can_harvest():
+			harvest()
+		ent = get_entity_type()
+
+	# Growing trees/grass/crops: force ready then harvest.
+	if ent != None:
+		if not can_harvest():
+			if have(Unlocks.Fertilizer):
+				if stock(Items.Fertilizer) > 0:
+					use_item(Items.Fertilizer)
+		if can_harvest():
+			harvest()
+
+	ent = get_entity_type()
+	if ent != None and ent != Entities.Apple:
+		if have(Unlocks.Carrots):
+			till()
+			if get_ground_type() != Grounds.Grassland:
+				till()
+
+def dino_clear_column(x):
+	size = get_world_size()
+	move_to(x, 0)
+	y = 0
+	while y < size:
+		dino_clear_tile()
+		if y < size - 1:
+			move(North)
+		y = y + 1
+
+def dino_clear_pass():
+	# One drone per column when Megafarm is owned; otherwise single-drone columns.
+	size = get_world_size()
+	handles = []
+	x = 0
+	while x < size:
+		d = try_spawn(dino_clear_column, x)
+		if d == None:
+			dino_clear_column(x)
+		else:
+			handles.append(d)
+		x = x + 1
+
+	i = 0
+	while i < len(handles):
+		wait_for(handles[i])
+		i = i + 1
+	return len(handles)
+
+def dino_clear():
+	wear_straw()
+	quick_print("dino clear")
+	go_home()
+
+	# Two multi-drone harvest passes, then wipe for apple spawns.
+	spawned = dino_clear_pass()
+	quick_print(spawned)
+	go_home()
+	dino_clear_pass()
+	go_home()
+
+	clear()
+	quick_print("dino cleared")
+
+def dino_apple(size):
+	v = measure()
+	if v == None:
+		return None
+	x = v[0]
+	y = v[1]
+	if x < 0 or y < 0 or x >= size or y >= size:
+		return None
+	return [x, y]
+
+def dino_try_move(d):
+	if can_move(d):
+		return move(d)
+	return False
+
+def dino_can_move_any():
+	if can_move(East):
+		return True
+	if can_move(West):
+		return True
+	if can_move(North):
+		return True
+	if can_move(South):
+		return True
+	return False
+
+def dino_neighbor(d, x, y):
+	nx = x
+	ny = y
+	if d == East:
+		nx = x + 1
+	if d == West:
+		nx = x - 1
+	if d == North:
+		ny = y + 1
+	if d == South:
+		ny = y - 1
+	return [nx, ny]
+
+def dino_cycle_dir(x, y, size):
+	# Hamiltonian cycle: even cols climb, odd cols descend to y=1,
+	# bottom row y=0 is a West highway back to origin.
+	if y == 0:
+		if x > 0:
+			return West
+		return North
+
+	if x == size - 1:
+		# Last column drops onto the highway.
+		if y > 0:
+			return South
+		return West
+
+	if x % 2 == 0:
+		if y < size - 1:
+			return North
+		return East
+
+	if y > 1:
+		return South
+	return East
+
+def dino_rank(x, y, size):
+	# Position along the cycle. Higher = further along from (0,0).
+	if x == 0:
+		return y
+	if y == 0:
+		return size * size - x
+	if x % 2 == 1:
+		return x * (size - 1) + (size - y)
+	return x * (size - 1) + y
+
+def dino_any_safe():
+	# Prefer the legal move whose destination has more in-bounds sides.
+	dirs = [North, East, South, West]
+	best_d = None
+	best_deg = -1
+	x = get_pos_x()
+	y = get_pos_y()
+	size = get_world_size()
+	i = 0
+	while i < 4:
+		d = dirs[i]
+		if can_move(d):
+			nxy = dino_neighbor(d, x, y)
+			nx = nxy[0]
+			ny = nxy[1]
+			deg = 0
+			if nx + 1 < size:
+				deg = deg + 1
+			if nx - 1 >= 0:
+				deg = deg + 1
+			if ny + 1 < size:
+				deg = deg + 1
+			if ny - 1 >= 0:
+				deg = deg + 1
+			if deg > best_deg:
+				best_deg = deg
+				best_d = d
+		i = i + 1
+	if best_d != None:
+		return dino_try_move(best_d)
+	return False
+
+def dino_step_smart(tx, ty, length, size):
+	# Follow Hamiltonian cycle; take shortcuts toward the apple while safe.
+	x = get_pos_x()
+	y = get_pos_y()
+
+	# Late game: no shortcuts. Pure cycle keeps the snake alive to fill.
+	if length * 5 >= size * size:
+		d = dino_cycle_dir(x, y, size)
+		if dino_try_move(d):
+			return True
+		return dino_any_safe()
+
+	head_r = dino_rank(x, y, size)
+	apple_r = dino_rank(tx, ty, size)
+
+	# Apple is behind on the cycle: lap with the cycle path.
+	if apple_r <= head_r:
+		d = dino_cycle_dir(x, y, size)
+		if dino_try_move(d):
+			return True
+		return dino_any_safe()
+
+	# Shortcut: step to a neighbor further along the cycle, not past the apple.
+	best_d = None
+	best_r = head_r
+	dirs = [North, East, South, West]
+	i = 0
+	while i < 4:
+		d = dirs[i]
+		if can_move(d):
+			nxy = dino_neighbor(d, x, y)
+			nx = nxy[0]
+			ny = nxy[1]
+			if nx >= 0 and ny >= 0 and nx < size and ny < size:
+				nr = dino_rank(nx, ny, size)
+				if nr > head_r and nr <= apple_r:
+					if nr > best_r:
+						best_r = nr
+						best_d = d
+		i = i + 1
+
+	if best_d != None:
+		if dino_try_move(best_d):
+			return True
+
+	d = dino_cycle_dir(x, y, size)
+	if dino_try_move(d):
+		return True
+	return dino_any_safe()
+
+def dino_target_size():
+	# Small even farm for fast full clears. Bones = length^2 still maxed for that grid.
+	world = get_world_size()
+	n = DINO_SIZE
+	if n > world:
+		n = world
+	if n % 2 == 1:
+		n = n - 1
+	if n < 4:
+		n = world
+		if n % 2 == 1:
+			if n > 1:
+				n = n - 1
+	return n
+
+def dino_run():
+	if not have(Unlocks.Dinosaurs):
+		quick_print("dino skip: locked")
+		return False
+	if not have(Unlocks.Hats):
+		quick_print("dino skip: hats")
+		return False
+
+	old_size = get_world_size()
+	size = dino_target_size()
+	goal = size * size
+
+	# Food for a full small-map clear.
+	food = stock(Items.Pumpkin)
+	if stock(Items.Cactus) > food:
+		food = stock(Items.Cactus)
+	if food < goal:
+		quick_print("dino skip: food")
+		return False
+	if have(Unlocks.Sunflowers):
+		if stock(Items.Power) < power_low_need():
+			quick_print("dino skip: power")
+			return False
+
+	quick_print("dino")
+	quick_print(size)
+	quick_print(goal)
+	before_bones = stock(Items.Bone)
+	before_pump = stock(Items.Pumpkin)
+	before_cact = stock(Items.Cactus)
+
+	# Shrink first so clear + snake run on the small grid.
+	if have(Unlocks.Debug_2):
+		if size < old_size:
+			set_world_size(size)
+
+	dino_clear()
+	go_home()
+	change_hat(Hats.Dinosaur_Hat)
+
+	if get_entity_type() != Entities.Apple:
+		wear_straw()
+		change_hat(Hats.Dinosaur_Hat)
+
+	if get_entity_type() != Entities.Apple:
+		quick_print("dino apple failed")
+		quick_print(stock(Items.Pumpkin) - before_pump)
+		quick_print(stock(Items.Cactus) - before_cact)
+		wear_straw()
+		if have(Unlocks.Debug_2):
+			set_world_size(old_size)
+		return False
+
+	target = dino_apple(size)
+	steps = 0
+	eaten = 1
+	quick_print("dino go")
+
+	# Fill the restricted map completely.
+	while eaten < goal and steps < DINO_MAX_STEPS:
+		steps = steps + 1
+
+		if not dino_can_move_any():
+			quick_print("dino full")
+			break
+
+		if get_entity_type() == Entities.Apple:
+			nxt = dino_apple(size)
+			if nxt != None:
+				if nxt[0] != get_pos_x() or nxt[1] != get_pos_y():
+					target = nxt
+
+		if target == None:
+			if get_entity_type() == Entities.Apple:
+				continue
+			target = [0, 0]
+
+		if get_pos_x() == target[0] and get_pos_y() == target[1]:
+			if get_entity_type() == Entities.Apple:
+				target = dino_apple(size)
+				eaten = eaten + 1
+				quick_print(eaten)
+				continue
+			target = dino_apple(size)
+			if target == None:
+				target = [0, 0]
+			continue
+
+		before_p = stock(Items.Pumpkin)
+		before_c = stock(Items.Cactus)
+		if not dino_step_smart(target[0], target[1], eaten, size):
+			quick_print("dino boxed")
+			break
+		if stock(Items.Pumpkin) < before_p or stock(Items.Cactus) < before_c:
+			eaten = eaten + 1
+			quick_print(eaten)
+			nxt = dino_apple(size)
+			if nxt != None:
+				target = nxt
+
+	# Unequip harvests bones, then restore full farm size.
+	wear_straw()
+	if have(Unlocks.Debug_2):
+		set_world_size(old_size)
+	go_home()
+	quick_print(eaten)
+	quick_print(stock(Items.Bone) - before_bones)
+	quick_print("dino done")
+	return True
+
+def ensure_power():
+	# Call between phases so multi-drone work never browns out.
+	if not have(Unlocks.Sunflowers):
+		return
+	if stock(Items.Power) < power_low_need():
+		power_restock()
+
+def step():
+	wear_straw()
+	quick_print("step")
+	ensure_power()
+	buy_all()
+	passes = 0
+	limit = farm_pass_count()
+	while passes < limit:
+		ensure_power()
+		farm_pass()
+		buy_all()
+		passes = passes + 1
+	ensure_power()
+	if have(Unlocks.Dinosaurs):
+		dino_run()
+		buy_all()
+	ensure_power()
+	if have(Unlocks.Mazes):
+		maze_run()
+		buy_all()
+	ensure_power()
+	quick_print("step done")
+
+while True:
+	step()

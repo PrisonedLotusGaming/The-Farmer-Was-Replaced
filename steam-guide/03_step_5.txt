@@ -1,0 +1,101 @@
+[b]Goal:[/b] Farm pumpkins for [b]Dictionaries[/b] / [b]Costs[/b] / [b]Auto Unlock[/b] (~[b]10k[/b] total) with a [b]solid pumpkin square[/b] for giant yield, and a feed rim that can pay plant costs.
+
+[b]Why a square:[/b] An [b]n x n[/b] of fully grown pumpkins merges into a giant (best at [b]6x6[/b]). About [b]1 in 5[/b] die and block the merge; [b]Dead_Pumpkin[/b] must be cleared with [b]plant(Entities.Pumpkin)[/b]. Never put feed crops inside the square.
+
+[b]Expand tip:[/b] Farm size jumps (example [b]8x8[/b] -> [b]12x12[/b]). When that happens, old carrot tiles can sit inside the new pumpkin square. This script [b]harvests wrong crops and replants pumpkins[/b] there. It only counts a tile as ready when the entity is actually a [b]Pumpkin[/b].
+
+[b]Cost ratio:[/b] Pumpkins spend [b]carrots[/b]. Carrots spend [b]hay + wood[/b]. Feed rim is [b]mostly hay[/b], then some carrots, sparse trees.
+
+Square size: about [b]half[/b] the farm until [b]8x8[/b], then a fixed [b]6x6[/b] pumpkin square (max giant multiplier) with the rest as feed. On [b]12x12[/b] that feed rim is large.
+
+[b]Do:[/b]
+[olist]
+[*] Buy [b]Expand[/b] often. Get to [b]8x8[/b] for a [b]6x6[/b] pumpkin square + rim; [b]12x12[/b] is even better for funding plant costs.
+[*] Rename to [b]starter_5[/b], clear, paste, run.
+[*] Buy [b]Dictionaries[/b], [b]Costs[/b], then [b]Auto Unlock[/b]. Buy [b]Speed[/b] / [b]Watering[/b] when cheap.
+[/olist]
+
+[code]
+while True:
+	size = get_world_size()
+	n = size // 2
+	if size >= 8:
+		n = 6
+	if n > 6:
+		n = 6
+	if n > size:
+		n = size
+	if n < 1:
+		n = 1
+
+	ready = 0
+	dead = 0
+	x = 0
+	while x < size:
+		y = 0
+		while y < size:
+			px = get_pos_x()
+			py = get_pos_y()
+
+			if px < n and py < n:
+				if get_ground_type() != Grounds.Soil:
+					till()
+
+				entity = get_entity_type()
+
+				if entity == Entities.Dead_Pumpkin:
+					dead = dead + 1
+					plant(Entities.Pumpkin)
+				elif entity == Entities.Pumpkin:
+					if can_harvest():
+						ready = ready + 1
+				else:
+					if can_harvest():
+						harvest()
+					plant(Entities.Pumpkin)
+			else:
+				if can_harvest():
+					harvest()
+				spot = px + py
+				if spot % 8 == 0:
+					if get_ground_type() != Grounds.Grassland:
+						till()
+					plant(Entities.Tree)
+				elif spot % 8 <= 5:
+					if get_ground_type() != Grounds.Grassland:
+						till()
+				else:
+					if get_ground_type() != Grounds.Soil:
+						till()
+					plant(Entities.Carrot)
+
+			if get_water() < 0.5:
+				use_item(Items.Water)
+
+			move(North)
+			y = y + 1
+		move(East)
+		x = x + 1
+
+	if dead == 0:
+		if ready >= n * n:
+			while get_pos_x() != 0:
+				move(West)
+			while get_pos_y() != 0:
+				move(South)
+			if can_harvest():
+				harvest()
+[/code]
+
+[b]Pumpkin tile rules:[/b]
+[list]
+[*] [b]Dead_Pumpkin[/b]: replant pumpkin
+[*] [b]Entities.Pumpkin[/b] + [b]can_harvest()[/b]: count ready (do not replant)
+[*] Growing pumpkin: leave it
+[*] Anything else (carrot, grass, empty): harvest if needed, then plant pumpkin
+[*] When [b]dead == 0[/b] and all [b]n * n[/b] tiles are ready pumpkins: walk to [b](0,0)[/b] and [b]harvest()[/b]
+[/list]
+
+[b]Feed rim:[/b] ~1/8 trees, ~5/8 hay, ~1/4 carrots.
+
+When you own [b]Auto Unlock[/b], go to [b]After Auto Unlock[/b].
