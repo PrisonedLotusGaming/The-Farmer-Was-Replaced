@@ -1,4 +1,0 @@
-1. Finish the in-game coding tutorial until you unlock [b]Loops[/b] ([b]while[/b]).
-2. Buy [b]Speed[/b] ([b]20 hay[/b]). The [b]1st Expand[/b] ([b]1[/b] -> [b]1x3[/b]) comes in [b]Step 2[/b] after Plant.
-
-Then go to [b]Step 1[/b].

@@ -57,6 +57,7 @@ Dino
 Hamiltonian cycle + apple shortcuts; late game cycle-only.
 DINO_SIZE=8 only when Debug_2 can shrink; else use full farm.
 Eating requires moving off the apple; never continue while sitting on one.
+Bail after DINO_IDLE_LAPS full-farm laps with no eat (tail trap), or dino boxed/full.
 dino_clear_tile fertilizer/till gated by unlocks.
 
 Maze

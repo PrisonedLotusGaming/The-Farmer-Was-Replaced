@@ -59,6 +59,8 @@ MAZE_RUNS = 5
 MAZE_DRONES = 8
 DINO_MAX_STEPS = 200000
 DINO_SIZE = 8
+# Bail if this many full-farm laps pass with no apple eaten (stuck on own tail).
+DINO_IDLE_LAPS = 2
 
 POWER_LOW = 200
 POWER_TARGET = 2000
@@ -1313,9 +1315,17 @@ def dino_run():
 	target = dino_apple(size)
 	steps = 0
 	eaten = 1
+	idle = 0
+	# Hard cap: a few full covers. Idle bail catches tail-traps much sooner.
+	max_steps = goal * 4
+	if max_steps > DINO_MAX_STEPS:
+		max_steps = DINO_MAX_STEPS
+	idle_limit = goal * DINO_IDLE_LAPS
+	if idle_limit < size * 4:
+		idle_limit = size * 4
 	quick_print("dino go")
 
-	while eaten < goal and steps < DINO_MAX_STEPS:
+	while eaten < goal and steps < max_steps:
 		steps = steps + 1
 		size = get_world_size()
 
@@ -1339,10 +1349,17 @@ def dino_run():
 			break
 		if stock(Items.Pumpkin) < before_p or stock(Items.Cactus) < before_c:
 			eaten = eaten + 1
+			idle = 0
 			quick_print(eaten)
 			nxt = dino_apple(size)
 			if nxt != None:
 				target = nxt
+		else:
+			idle = idle + 1
+			if idle >= idle_limit:
+				quick_print("dino bail")
+				quick_print(idle)
+				break
 
 	# Unequip harvests bones, then restore full farm size.
 	wear_straw()

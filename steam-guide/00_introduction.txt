@@ -1,6 +1,0 @@
-This guide takes you from [b]no coding experience[/b] to a full AFK script called [b]afk_farm[/b] that farms, buys unlocks, and later runs power, dinosaurs, and mazes by itself.
-
-[b]GitHub (full afk_farm script + starters):[/b]
-[url]https://github.com/PrisonedLotusGaming/the-farmer-was-replaced-afk-farm[/url]
-
-[b]Most important fact:[/b] [b]Auto Unlock[/b] ([b]unlock()[/b]) costs [b]5k pumpkins[/b] and sits at the end of the coding branch. You also need [b]Dictionaries[/b] and [b]Costs[/b] first ([b]2.5k pumpkins[/b] each). Until then, starters only farm. You click the tree yourself.
