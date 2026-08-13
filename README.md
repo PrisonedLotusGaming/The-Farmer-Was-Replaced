@@ -2,7 +2,6 @@
 
 Companion scripts and notes for [The Farmer Was Replaced](https://store.steampowered.com/app/2060160/The_Farmer_Was_Replaced/).
 
-**Steam guide:** _link coming soon_ 
 
 ## Guides in this repo
 
