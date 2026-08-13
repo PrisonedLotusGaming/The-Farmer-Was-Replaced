@@ -1,6 +1,6 @@
 # AFK farm — starters + afk_farm
 
-Scripts for the AFK path in The Farmer Was Replaced. Full walkthrough lives in the Steam guide (linked from the [repo root README](../../README.md)).
+Scripts for the AFK path in The Farmer Was Replaced. Full walkthrough lives in the Steam guide.
 
 **Steam guide:** _link coming soon_ 
 
