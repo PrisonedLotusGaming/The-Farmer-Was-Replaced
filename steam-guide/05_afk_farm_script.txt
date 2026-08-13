@@ -10,7 +10,7 @@ The full script is too long for Steam, so it lives on GitHub as [b]afk_farm.txt[
 
 [b]Install from GitHub[/b]
 [olist]
-[*] Open: [url]https://github.com/PrisonedLotus/the-farmer-was-replaced-afk-farm[/url]
+[*] Open: [url]https://github.com/PrisonedLotusGaming/the-farmer-was-replaced-afk-farm[/url]
 [*] Open [b]afk_farm.txt[/b] (Raw view is easiest to copy).
 [*] Stop [b]starter_6[/b].
 [*] Rename the code window to [b]afk_farm[/b].

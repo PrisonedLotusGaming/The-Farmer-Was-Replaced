@@ -2,7 +2,7 @@
 
 Zero-to-AFK scripts for [The Farmer Was Replaced](https://store.steampowered.com/app/2060160/The_Farmer_Was_Replaced/).
 
-**GitHub repo:** https://github.com/PrisonedLotus/the-farmer-was-replaced-afk-farm
+**GitHub repo:** https://github.com/PrisonedLotusGaming/the-farmer-was-replaced-afk-farm
 
 Steam guide companion: paste each starter when that crop unlocks, then use **`afk_farm.txt`** once you own **Auto Unlock**.
 
