@@ -2,6 +2,8 @@
 
 Scripts for the AFK path in The Farmer Was Replaced. Full walkthrough lives in the Steam guide (linked from the [repo root README](../../README.md)).
 
+**Steam guide:** _link coming soon_ 
+
 **Repo path:** `guides/afk-farm/`
 
 ## Important
