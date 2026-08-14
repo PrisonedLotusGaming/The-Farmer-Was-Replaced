@@ -63,5 +63,6 @@ dino_clear_tile fertilizer/till gated by unlocks.
 
 Maze
 ----
+MAZE_RUNS fresh mazes per step (plant bush + substance each time).
 Up to MAZE_DRONES workers with direction deviation + measure guidance.
 Timeout: get_tick_count if Timing, else steps max size*size*40.

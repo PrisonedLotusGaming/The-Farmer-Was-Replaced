@@ -981,34 +981,38 @@ def maze_run():
 			return False
 
 	quick_print("maze")
+	quick_print(MAZE_RUNS)
 	wear_straw()
-	go_home()
 	size = get_world_size()
-
-	if have(Unlocks.Carrots):
-		if get_ground_type() != Grounds.Grassland:
-			till()
-	if can_harvest():
-		harvest()
-	plant(Entities.Bush)
-	use_item(Items.Weird_Substance, needed)
 
 	runs = 0
 	while runs < MAZE_RUNS:
-		if get_entity_type() != Entities.Hedge and get_entity_type() != Entities.Treasure:
-			# After a harvest, maze may already be cleared; stop the batch.
-			if runs > 0:
+		needed = maze_substance_needed()
+		if needed <= 0:
+			break
+		if stock(Items.Weird_Substance) < needed:
+			break
+		if have(Unlocks.Sunflowers):
+			if stock(Items.Power) < power_low_need():
 				break
+
+		# Fresh maze each run (harvest ends the previous maze).
+		go_home()
+		if have(Unlocks.Carrots):
+			if get_ground_type() != Grounds.Grassland:
+				till()
+		if can_harvest():
+			harvest()
+		plant(Entities.Bush)
+		use_item(Items.Weird_Substance, needed)
+
+		if get_entity_type() != Entities.Hedge and get_entity_type() != Entities.Treasure:
+			break
+
 		if not maze_solve_parallel(size):
 			break
 		runs = runs + 1
-		# Reuse maze if treasure was relocated / still present; else stop.
-		if get_entity_type() != Entities.Treasure and get_entity_type() != Entities.Hedge:
-			break
-		# Top up substance for another treasure cycle when possible.
-		if stock(Items.Weird_Substance) >= needed:
-			if get_entity_type() == Entities.Treasure or get_entity_type() == Entities.Hedge:
-				use_item(Items.Weird_Substance, needed)
+		quick_print(runs)
 
 	wear_straw()
 	go_home()
