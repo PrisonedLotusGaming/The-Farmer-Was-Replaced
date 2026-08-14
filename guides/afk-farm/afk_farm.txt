@@ -59,8 +59,10 @@ MAZE_RUNS = 5
 MAZE_DRONES = 8
 DINO_MAX_STEPS = 200000
 DINO_SIZE = 8
-# Bail only after this many full-farm laps with no apple eaten (tail trap).
-DINO_IDLE_LAPS = 3
+# Bail only after this many full-farm laps with no apple eaten.
+# High on purpose: near a full clear, one apple can take several laps of the cycle.
+# Prefer ending on "dino full" (caught own tail). Idle bail is the stuck-loop safety net.
+DINO_IDLE_LAPS = 12
 
 POWER_LOW = 200
 POWER_TARGET = 2000
@@ -1316,19 +1318,19 @@ def dino_run():
 	steps = 0
 	eaten = 1
 	idle = 0
-	# Allow up to ~one full cover per apple, capped by DINO_MAX_STEPS.
-	max_steps = goal * goal
-	if max_steps > DINO_MAX_STEPS:
-		max_steps = DINO_MAX_STEPS
+	# Prefer filling until we catch our own tail. Idle bail is only for no-apple loops.
+	max_steps = DINO_MAX_STEPS
 	idle_limit = goal * DINO_IDLE_LAPS
-	if idle_limit < size * 4:
-		idle_limit = size * 4
+	if idle_limit < goal * 4:
+		idle_limit = goal * 4
 	quick_print("dino go")
+	quick_print(idle_limit)
 
 	while eaten < goal and steps < max_steps:
 		steps = steps + 1
 		size = get_world_size()
 
+		# Natural end: board full / head caught in own tail.
 		if not dino_can_move_any():
 			quick_print("dino full")
 			break
@@ -1345,6 +1347,7 @@ def dino_run():
 			target = [0, 0]
 
 		if not dino_step_smart(target[0], target[1], eaten, size):
+			# Same idea as full: no legal move left.
 			quick_print("dino boxed")
 			break
 
