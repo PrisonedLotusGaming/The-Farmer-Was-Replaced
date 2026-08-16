@@ -220,18 +220,33 @@ def region_n(size):
 	return n
 
 def sunflower_rows(size):
+	# Keep a feed rim. On 8x8, n=6 already uses y<6; 3 sunflower rows
+	# would cover y>=5 and leave zero free tiles for carrots/hay/wood.
 	r = 3
-	if size < 8:
+	if size <= 8:
+		r = 1
+	elif size < 12:
 		r = 2
+	n = region_n(size)
+	# Always leave at least one non-pumpkin/cactus row for feed crops.
+	free_rows = size - n
+	if free_rows < 1:
+		return 0
+	if r >= free_rows:
+		r = free_rows - 1
+	if r < 0:
+		r = 0
 	if r > size:
 		r = size
 	return r
 
 def want_feed(x, y):
 	# Free-zone crop when carrots are unlocked. Prefer hay/wood if stocks are low.
+	# Also refill carrots when the carrot stock itself is low (pumpkins spend carrots).
 	buf = feed_buffer()
 	hay = stock(Items.Hay)
 	wood = stock(Items.Wood)
+	carrots = stock(Items.Carrot)
 	spot = x + y
 
 	if hay < buf or wood < buf:
@@ -244,6 +259,10 @@ def want_feed(x, y):
 		if have(Unlocks.Plant):
 			return Entities.Bush
 		return Entities.Grass
+
+	# Hay/wood healthy but carrots depleted: plant more carrots for pumpkin costs.
+	if carrots < buf:
+		return Entities.Carrot
 
 	# Healthy stocks: hay-heavy rim, sparse trees, some carrots.
 	if have(Unlocks.Trees):

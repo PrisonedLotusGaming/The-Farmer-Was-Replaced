@@ -21,8 +21,10 @@ Standing constraints
 Plant costs / feed
 ------------------
 Carrots spend hay+wood; pumpkins spend carrots (costs rise with crop upgrades).
-want_feed() checks num_items against feed_buffer() (size*size, min 100).
-Low hay -> grass. Low wood -> sparse trees. Healthy -> hay-heavy mix + some carrots.
+want_feed() checks hay/wood against feed_buffer(), then carrot stock.
+Low hay/wood -> grass/trees. Low carrots (with healthy hay/wood) -> carrots.
+Healthy -> hay-heavy mix + some carrots.
+sunflower_rows shrinks on small farms so 8x8 keeps a feed rim (was zero free tiles).
 Water when get_water() < 0.5.
 
 Expand / pumpkin square
