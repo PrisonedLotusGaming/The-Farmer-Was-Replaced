@@ -72,6 +72,13 @@ PUMPKIN_MAX_ROUNDS = 60
 CACTUS_MAX_ROUNDS = 60
 CACTUS_SORT_ROUNDS = 2
 FARM_PASSES_BEFORE_SPECIAL = 3
+# Local work batch for stop checks and the single-drone fallback.
+# Residents keep running; this does NOT set a drone task lifetime.
+FARM_WORK_QUANTUM = 8
+# Percent of total drone capacity, including the main drone. Cactus gets rest.
+FARM_FEED_PERCENT = 15
+FARM_PUMPKIN_PERCENT = 15
+FARM_SUNFLOWER_PERCENT = 10
 
 def have(u):
 	return num_unlocked(u) > 0
@@ -741,33 +748,655 @@ def farm_pass():
 	wear_straw()
 	size = get_world_size()
 	quick_print("farm")
-	go_home()
+	states = main_farm_states(size)
+	cycles = farm_pass_count()
+	active = []
+	for kind in [0, 3, 1, 2]:
+		if len(states[kind]["tiles"]) > 0:
+			active.append(states[kind])
 
-	# Megafarm: one drone per column. Otherwise run every column on this drone.
-	handles = []
-	x = 0
-	while x < size:
-		d = try_spawn(care_column, x)
-		if d == None:
-			care_column(x)
+	# Cactus leads the whole main-farm phase. Its handle is the stop signal:
+	# every resident can observe has_finished(), without shared globals.
+	leader = active[len(active) - 1]
+	capacity = 1
+	if can_multi():
+		capacity = max_drones()
+	if capacity < 2 or len(active) < 2:
+		main_farm_local(active, cycles)
+	elif capacity >= len(active) and active[0]["kind"] == 0:
+		main_farm_parallel(states, active, capacity, cycles)
+	else:
+		# Reserve one drone for each other region (including this main drone).
+		reserved = len(active) - 1
+		if reserved >= capacity:
+			reserved = capacity - 1
+		team = capacity - reserved
+		job = {"state": leader, "team": team, "cycles": cycles}
+		control = try_spawn(main_farm_leader, job)
+		if control == None:
+			main_farm_local(active, cycles)
 		else:
-			handles.append(d)
-		x = x + 1
-
-	i = 0
-	while i < len(handles):
-		wait_for(handles[i])
-		i = i + 1
-
-	# Dedicated finish: grow to max, then harvest once.
-	if have(Unlocks.Pumpkins):
-		pumpkin_wait_and_harvest()
-	if have(Unlocks.Cactus):
-		cactus_wait_sort_and_harvest()
-	if have(Unlocks.Sunflowers):
-		harvest_best_sunflowers(size)
+			handles = []
+			local = [active[0]]
+			i = 1
+			while i < len(active) - 1:
+				job = {"states": [active[i]], "control": control, "waiters": []}
+				d = try_spawn(main_farm_resident, job)
+				if d == None:
+					local.append(active[i])
+				else:
+					handles.append(d)
+				i = i + 1
+			main_farm_resident({"states": local, "control": control, "waiters": handles})
+			wait_for(control)
+			for d in handles:
+				wait_for(d)
 	go_home()
 	quick_print("farm done")
+
+def main_farm_allocation(states, capacity):
+	# Round percentages to nearest integer. Empty regions get no drones;
+	# active regions get at least one when capacity allows independent teams.
+	counts = [0, 0, 0, 0]
+	percent = [FARM_FEED_PERCENT, FARM_PUMPKIN_PERCENT, 0, FARM_SUNFLOWER_PERCENT]
+	leader = 0
+	active = 0
+	for kind in [0, 3, 1, 2]:
+		if len(states[kind]["tiles"]) > 0:
+			counts[kind] = 1
+			active = active + 1
+			leader = kind
+	remaining = capacity - active
+	for kind in [0, 1, 3]:
+		if counts[kind] > 0 and kind != leader:
+			target = (capacity * percent[kind] + 50) // 100
+			if target > len(states[kind]["tiles"]):
+				target = len(states[kind]["tiles"])
+			while counts[kind] < target and remaining > 0:
+				counts[kind] = counts[kind] + 1
+				remaining = remaining - 1
+	# The leader is cactus when unlocked; otherwise the slowest active crop.
+	if remaining > 0:
+		counts[leader] = counts[leader] + remaining
+	return counts
+
+def main_region_parts(state, count):
+	# Each drone owns one contiguous range, with private progress/queues.
+	if count > len(state["tiles"]):
+		count = len(state["tiles"])
+	parts = []
+	lane = 0
+	while lane < count:
+		part = {}
+		for key in state:
+			part[key] = state[key]
+		part["tiles"] = []
+		index = len(state["tiles"]) * lane // count
+		end = len(state["tiles"]) * (lane + 1) // count
+		while index < end:
+			part["tiles"].append(state["tiles"][index])
+			index = index + 1
+		part["index"] = 0
+		part["cycles"] = 0
+		part["phase"] = "grow"
+		part["pending"] = part["tiles"]
+		part["next_pending"] = []
+		part["growing"] = []
+		parts.append(part)
+		lane = lane + 1
+	return parts
+
+def main_farm_parallel(states, active, capacity, cycles):
+	counts = main_farm_allocation(states, capacity)
+	leader = active[len(active) - 1]
+	control = try_spawn(main_farm_leader, {"state": leader,
+		"team": counts[leader["kind"]], "cycles": cycles})
+	if control == None:
+		main_farm_local(active, cycles)
+		return
+	handles = []
+	local = []
+	i = 0
+	while i < len(active) - 1:
+		state = active[i]
+		team = counts[state["kind"]]
+		if state["kind"] == 1 and team > 1:
+			# One coordinator owns harvest; its helpers only grow/refill.
+			d = try_spawn(main_pumpkin_resident, {"state": state,
+				"team": team, "control": control})
+			if d == None:
+				local.append(state)
+			else:
+				handles.append(d)
+		else:
+			parts = main_region_parts(state, team)
+			lane = 0
+			for part in parts:
+				if i == 0 and lane == 0:
+					# The main drone is one of the feed team's allocated slots.
+					local.append(part)
+				else:
+					d = try_spawn(main_farm_resident, {"states": [part],
+						"control": control, "waiters": []})
+					if d == None:
+						local.append(part)
+					else:
+						handles.append(d)
+				lane = lane + 1
+		i = i + 1
+	main_farm_resident({"states": local, "control": control, "waiters": handles})
+	wait_for(control)
+	for d in handles:
+		wait_for(d)
+
+def main_farm_local(states, cycles):
+	# Single-drone fallback: local calls only, with no spawn/join churn.
+	while True:
+		done = True
+		for state in states:
+			if state["cycles"] < cycles:
+				done = False
+		if done:
+			return
+		for state in states:
+			main_farm_work(state)
+
+def main_farm_resident(job):
+	# One invocation lasts until the actual mode boundary. main_farm_work
+	# mutates LOCAL state; its small batches do not recreate this drone.
+	while True:
+		done = has_finished(job["control"])
+		# Finish at least one cycle per region, even if cactus finishes early.
+		# The main feed drone keeps supplying resources while residents drain.
+		for d in job["waiters"]:
+			if not has_finished(d):
+				done = False
+		for state in job["states"]:
+			if state["cycles"] < 1:
+				done = False
+		if done:
+			return
+		for state in job["states"]:
+			main_farm_work(state)
+
+
+def main_farm_leader(job):
+	state = job["state"]
+	if state["kind"] == 2:
+		main_cactus_team(state, job["team"], job["cycles"])
+	elif state["kind"] == 1 and job["team"] > 1:
+		main_pumpkin_team(state, job["team"], None, job["cycles"])
+	elif state["kind"] != 1 and job["team"] > 1:
+		parts = main_region_parts(state, job["team"])
+		handles = []
+		i = 1
+		while i < len(parts):
+			task = {"state": parts[i], "cycles": job["cycles"]}
+			d = try_spawn(main_regular_batch, task)
+			if d == None:
+				main_regular_batch(task)
+			else:
+				handles.append(d)
+			i = i + 1
+		main_regular_batch({"state": parts[0], "cycles": job["cycles"]})
+		for d in handles:
+			wait_for(d)
+	else:
+		while state["cycles"] < job["cycles"]:
+			main_farm_work(state)
+
+def main_regular_batch(job):
+	while job["state"]["cycles"] < job["cycles"]:
+		main_farm_work(job["state"])
+
+def main_pumpkin_resident(job):
+	main_pumpkin_team(job["state"], job["team"], job["control"], 1)
+
+def main_pumpkin_team(state, team, control, cycles):
+	parts = main_region_parts(state, team)
+	while True:
+		done = state["cycles"] >= cycles
+		if control != None:
+			if not has_finished(control):
+				done = False
+		if done:
+			return
+		# Every partition remembers its own unresolved tiles. No helper may
+		# harvest: adjacent ripe partitions may already be one giant pumpkin.
+		parts = main_pumpkin_stage(parts, "grow")
+		origin = state["tiles"][0]
+		move_to(origin[0], origin[1])
+		if get_entity_type() == Entities.Pumpkin and can_harvest():
+			if harvest():
+				plant_entity(Entities.Pumpkin)
+				for part in parts:
+					part["phase"] = "refill"
+					part["index"] = 0
+					part["pending"] = part["tiles"]
+					part["next_pending"] = []
+					part["growing"] = []
+				parts = main_pumpkin_stage(parts, "refill")
+				state["cycles"] = state["cycles"] + 1
+
+def main_pumpkin_stage(parts, phase):
+	# Coarse tasks last until a whole partition is ready/planted, not a scan
+	# or work quantum. Joining here protects the giant's single harvest.
+	handles = []
+	i = 1
+	while i < len(parts):
+		d = try_spawn(main_pumpkin_batch, {"state": parts[i], "phase": phase})
+		if d == None:
+			parts[i] = main_pumpkin_batch({"state": parts[i], "phase": phase})
+		handles.append(d)
+		i = i + 1
+	parts[0] = main_pumpkin_batch({"state": parts[0], "phase": phase})
+	i = 1
+	while i < len(parts):
+		if handles[i - 1] != None:
+			parts[i] = wait_for(handles[i - 1])
+		i = i + 1
+	return parts
+
+def main_pumpkin_batch(job):
+	state = job["state"]
+	if job["phase"] == "refill":
+		while state["phase"] == "refill":
+			main_pumpkin_step(state)
+	else:
+		while state["phase"] != "harvest":
+			main_pumpkin_step(state)
+	return state
+
+
+def main_cactus_team(state, team, cycles):
+	while state["cycles"] < cycles:
+		main_cactus_stage(state, team, "grow")
+		main_cactus_stage(state, team, "rows")
+		main_cactus_stage(state, team, "cols")
+		# All sorting drones have finished. Verify before a single chain harvest.
+		if main_cactus_verified(state):
+			move_to(state["x0"], 0)
+			if harvest():
+				main_cactus_stage(state, team, "refill")
+				state["cycles"] = state["cycles"] + 1
+
+
+def main_cactus_stage(state, team, phase):
+	# Whole batches of disjoint rows/columns, NOT small tile tasks.
+	# A stage barrier prevents column swaps from racing unfinished row sorts.
+	lines = state["width"]
+	if phase == "rows":
+		lines = state["height"]
+	elif phase == "grow" or phase == "refill":
+		lines = state["width"] * state["height"]
+	workers = team
+	if workers > lines:
+		workers = lines
+	handles = []
+	lane = 1
+	while lane < workers:
+		job = {"x0": state["x0"], "width": state["width"],
+			"height": state["height"], "phase": phase,
+			"lane": lane, "workers": workers}
+		d = try_spawn(main_cactus_batch, job)
+		if d == None:
+			main_cactus_batch(job)
+		else:
+			handles.append(d)
+		lane = lane + 1
+	main_cactus_batch({"x0": state["x0"], "width": state["width"],
+		"height": state["height"], "phase": phase,
+		"lane": 0, "workers": workers})
+	for d in handles:
+		wait_for(d)
+
+
+def main_cactus_batch(job):
+	phase = job["phase"]
+	if phase == "grow" or phase == "refill":
+		# Contiguous column-major tile ranges use the whole team, even when
+		# the rectangle has fewer columns than drones. Keep each drone alive
+		# for all growth/replant scans of its range.
+		total = job["width"] * job["height"]
+		start = total * job["lane"] // job["workers"]
+		end = total * (job["lane"] + 1) // job["workers"]
+		ready = False
+		while not ready:
+			ready = True
+			index = start
+			while index < end:
+				move_to(job["x0"] + index // job["height"], index % job["height"])
+				entity = get_entity_type()
+				if entity != None and entity != Entities.Cactus:
+					harvest()
+				grown = cactus_care_tile()
+				if phase == "refill":
+					grown = get_entity_type() == Entities.Cactus
+				if not grown:
+					ready = False
+				index = index + 1
+		return
+
+	lines = job["width"]
+	length = job["height"]
+	direction = North
+	if phase == "rows":
+		lines = job["height"]
+		length = job["width"]
+		direction = East
+	line = job["lane"]
+	while line < lines:
+		limit = length - 1
+		while limit > 0:
+			changed = False
+			pos = 0
+			while pos < limit:
+				if phase == "rows":
+					move_to(job["x0"] + pos, line)
+				else:
+					move_to(job["x0"] + line, pos)
+				a = measure()
+				b = measure(direction)
+				if a != None and b != None and a > b:
+					if swap(direction):
+						changed = True
+				pos = pos + 1
+			if not changed:
+				break
+			limit = limit - 1
+		line = line + job["workers"]
+
+
+def main_cactus_verified(state):
+	for tile in state["tiles"]:
+		x = tile[0]
+		y = tile[1]
+		move_to(x, y)
+		if get_entity_type() != Entities.Cactus or not can_harvest():
+			return False
+		a = measure()
+		if x < state["x0"] + state["width"] - 1:
+			b = measure(East)
+			if b == None or a > b:
+				return False
+		if y < state["height"] - 1:
+			b = measure(North)
+			if b == None or a > b:
+				return False
+	return True
+
+def main_farm_states(size):
+	# Exclusive ownership. Keep the existing pumpkin square; on 8x8 the
+	# cactus rectangle is 2x6, instead of overlapping the 6x6 pumpkins.
+	n = region_n(size)
+	cx0 = size - n
+	if have(Unlocks.Pumpkins) and cx0 < n:
+		cx0 = n
+	sf_y0 = size - sunflower_rows(size)
+	states = []
+	kind = 0
+	while kind < 4:
+		states.append({"kind": kind, "tiles": [], "index": 0,
+			"phase": "grow", "ready": True, "cycles": 0,
+			"x0": cx0, "width": size - cx0, "height": n,
+			"line": 0, "pos": 0, "limit": 0, "changed": False})
+		kind = kind + 1
+	y = 0
+	while y < size:
+		x = 0
+		while x < size:
+			kind = 0
+			if have(Unlocks.Pumpkins) and x < n and y < n:
+				kind = 1
+			elif have(Unlocks.Cactus) and x >= cx0 and y < n:
+				kind = 2
+			elif have(Unlocks.Sunflowers) and y >= sf_y0:
+				kind = 3
+			states[kind]["tiles"].append([x, y])
+			x = x + 1
+		y = y + 1
+	# Read-only initial scan; later passes contain only unresolved pumpkins.
+	states[1]["pending"] = states[1]["tiles"]
+	states[1]["next_pending"] = []
+	states[1]["growing"] = []
+	return states
+
+def main_feed_wanted(x, y):
+	if have(Unlocks.Carrots):
+		# Upgrades can make one carrot cost more than the old fixed buffer.
+		# Rebuild enough inputs for a work quantum before trying carrots again.
+		cost = get_cost(Entities.Carrot)
+		hay_need = feed_buffer()
+		wood_need = hay_need
+		if cost != None:
+			if Items.Hay in cost:
+				need = cost[Items.Hay] * FARM_WORK_QUANTUM
+				if need > hay_need:
+					hay_need = need
+			if Items.Wood in cost:
+				need = cost[Items.Wood] * FARM_WORK_QUANTUM
+				if need > wood_need:
+					wood_need = need
+		hay = stock(Items.Hay)
+		wood = stock(Items.Wood)
+		if hay < hay_need or wood < wood_need:
+			if hay * wood_need <= wood * hay_need:
+				return Entities.Grass
+			if have(Unlocks.Trees):
+				if (x + y) % 2 == 0:
+					return Entities.Tree
+				return Entities.Grass
+			if have(Unlocks.Plant):
+				return Entities.Bush
+			return Entities.Grass
+		return want_feed(x, y)
+	if have(Unlocks.Trees) and (x + y) % 2 == 0:
+		return Entities.Tree
+	if have(Unlocks.Plant) and (x + y) % 2 == 0:
+		return Entities.Bush
+	return Entities.Grass
+
+def main_regular_tile(kind, x, y):
+	entity = get_entity_type()
+	if kind == 0:
+		valid = entity == Entities.Grass or entity == Entities.Carrot or entity == Entities.Tree or entity == Entities.Bush
+	else:
+		valid = entity == Entities.Sunflower
+	# Let existing feed crops finish even when inventory preferences change.
+	if valid and not can_harvest():
+		water_if_needed()
+		return False
+	got = False
+	if entity != None:
+		got = valid and can_harvest()
+		# harvest() also removes an immature leftover from another mode.
+		harvest()
+	if kind == 0:
+		wanted = main_feed_wanted(x, y)
+	else:
+		wanted = Entities.Sunflower
+	plant_entity(wanted)
+	return got
+
+def main_cactus_start_sort(state, phase):
+	state["phase"] = phase
+	state["line"] = 0
+	state["pos"] = 0
+	state["changed"] = False
+	if phase == "rows":
+		state["limit"] = state["width"] - 1
+	else:
+		state["limit"] = state["height"] - 1
+
+def main_cactus_sort_step(state):
+	# One bubble-sort comparison. Shrinking passes give a finite bound;
+	# sorting columns after rows preserves the sorted rows, also for rectangles.
+	rows = state["phase"] == "rows"
+	length = state["height"]
+	lines = state["width"]
+	if rows:
+		length = state["width"]
+		lines = state["height"]
+	if state["line"] >= lines or length < 2:
+		if rows:
+			main_cactus_start_sort(state, "cols")
+		else:
+			state["phase"] = "verify"
+			state["index"] = 0
+			state["ready"] = True
+		return
+	if rows:
+		move_to(state["x0"] + state["pos"], state["line"])
+		direction = East
+	else:
+		move_to(state["x0"] + state["line"], state["pos"])
+		direction = North
+	a = measure()
+	b = measure(direction)
+	if a == None or b == None:
+		state["phase"] = "grow"
+		state["index"] = 0
+		state["ready"] = True
+		return
+	if a > b:
+		if swap(direction):
+			state["changed"] = True
+	state["pos"] = state["pos"] + 1
+	if state["pos"] >= state["limit"]:
+		state["limit"] = state["limit"] - 1
+		if not state["changed"] or state["limit"] < 1:
+			state["line"] = state["line"] + 1
+			state["limit"] = length - 1
+		state["pos"] = 0
+		state["changed"] = False
+
+def main_pumpkin_step(state):
+	# A mature pumpkin stays ready until this region's single owner harvests.
+	# Keep scan order while filtering pending tiles; never revisit ready tiles
+	# just because a different pumpkin is still growing or died.
+	if state["phase"] == "harvest":
+		origin = state["tiles"][0]
+		move_to(origin[0], origin[1])
+		if get_entity_type() == Entities.Pumpkin and can_harvest():
+			if harvest():
+				plant_entity(Entities.Pumpkin)
+				state["phase"] = "refill"
+				state["pending"] = state["tiles"]
+				state["next_pending"] = []
+				state["growing"] = []
+				state["index"] = 0
+		return
+
+	tile = state["pending"][state["index"]]
+	move_to(tile[0], tile[1])
+	entity = get_entity_type()
+	if entity != None and entity != Entities.Pumpkin and entity != Entities.Dead_Pumpkin:
+		harvest()
+	ready = pumpkin_care_tile()
+	if state["phase"] == "refill":
+		if get_entity_type() != Entities.Pumpkin:
+			# Failed planting (e.g. no carrots): retry only missing plants.
+			state["next_pending"].append(tile)
+		elif not ready:
+			state["growing"].append(tile)
+	elif not ready:
+		state["next_pending"].append(tile)
+
+	state["index"] = state["index"] + 1
+	if state["index"] < len(state["pending"]):
+		return
+	state["index"] = 0
+	state["pending"] = state["next_pending"]
+	state["next_pending"] = []
+	if len(state["pending"]) == 0:
+		if state["phase"] == "refill":
+			state["cycles"] = state["cycles"] + 1
+			state["phase"] = "grow"
+			state["pending"] = state["growing"]
+			state["growing"] = []
+		if len(state["pending"]) == 0:
+			state["phase"] = "harvest"
+
+def main_special_step(state):
+	kind = state["kind"]
+	if kind == 1:
+		main_pumpkin_step(state)
+		return
+	if kind == 2 and (state["phase"] == "rows" or state["phase"] == "cols"):
+		main_cactus_sort_step(state)
+		return
+	tile = state["tiles"][state["index"]]
+	x = tile[0]
+	y = tile[1]
+	move_to(x, y)
+	wanted = Entities.Pumpkin
+	if kind == 2:
+		wanted = Entities.Cactus
+	entity = get_entity_type()
+	if entity != None and entity != wanted and entity != Entities.Dead_Pumpkin:
+		harvest()
+	if kind == 1:
+		ready = pumpkin_care_tile()
+	else:
+		ready = cactus_care_tile()
+	if state["phase"] == "refill":
+		# Finish one complete replanting pass before counting a harvest cycle.
+		ready = get_entity_type() == wanted
+	if not ready:
+		state["ready"] = False
+	if kind == 2 and state["phase"] == "verify" and ready:
+		a = measure()
+		if x < state["x0"] + state["width"] - 1:
+			b = measure(East)
+			if b == None or a > b:
+				state["ready"] = False
+		if y < state["height"] - 1:
+			b = measure(North)
+			if b == None or a > b:
+				state["ready"] = False
+	state["index"] = state["index"] + 1
+	if state["index"] < len(state["tiles"]):
+		return
+	state["index"] = 0
+	if state["ready"]:
+		if state["phase"] == "refill":
+			state["cycles"] = state["cycles"] + 1
+			state["phase"] = "grow"
+		elif kind == 2 and state["phase"] == "grow":
+			main_cactus_start_sort(state, "rows")
+		else:
+			origin = state["tiles"][0]
+			move_to(origin[0], origin[1])
+			if get_entity_type() == wanted and can_harvest():
+				if harvest():
+					plant_entity(wanted)
+					state["phase"] = "refill"
+	elif state["phase"] == "verify":
+		# Never chain-harvest a partially grown or unsorted field.
+		state["phase"] = "grow"
+	state["ready"] = True
+
+def main_farm_work(state):
+	# Local batch inside a resident (or the single-drone fallback).
+	# The same drone keeps the same state and position across calls.
+	work = 0
+	while work < FARM_WORK_QUANTUM:
+		kind = state["kind"]
+		if kind == 1 or kind == 2:
+			main_special_step(state)
+		else:
+			tile = state["tiles"][state["index"]]
+			move_to(tile[0], tile[1])
+			got = main_regular_tile(kind, tile[0], tile[1])
+			if kind == 3 and got:
+				state["cycles"] = state["cycles"] + 1
+			state["index"] = state["index"] + 1
+			if state["index"] >= len(state["tiles"]):
+				state["index"] = 0
+				if kind == 0:
+					state["cycles"] = state["cycles"] + 1
+		work = work + 1
+	return state
 
 def maze_opposite(d):
 	if d == North:
@@ -1406,15 +2035,10 @@ def ensure_power():
 def step():
 	wear_straw()
 	quick_print("step")
-	ensure_power()
 	buy_all()
-	passes = 0
-	limit = farm_pass_count()
-	while passes < limit:
-		ensure_power()
-		farm_pass()
-		buy_all()
-		passes = passes + 1
+	# Residents span all main-farm cycles; upgrades/expansion wait for exit.
+	farm_pass()
+	buy_all()
 	ensure_power()
 	if have(Unlocks.Dinosaurs):
 		dino_run()
