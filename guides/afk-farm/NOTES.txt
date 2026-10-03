@@ -14,7 +14,7 @@ Standing constraints
 - Full window paste, not snippets
 - No dictionaries in live code until Dictionaries unlocked (visited uses flat lists)
 - Never iterate get_cost results
-- Intentional while True only at bottom of afk_farm
+- Only the bottom loop runs across modes; main-farm loops must drain before switching
 - Prefer while + index over for-in on unknown collections
 - Tabs for indentation
 
@@ -24,6 +24,8 @@ Carrots spend hay+wood; pumpkins spend carrots (costs rise with crop upgrades).
 want_feed() checks hay/wood against feed_buffer(), then carrot stock.
 Low hay/wood -> grass/trees. Low carrots (with healthy hay/wood) -> carrots.
 Healthy -> hay-heavy mix + some carrots.
+main_feed_wanted also scales hay/wood buffers with current carrot costs.
+Already-growing feed crops finish before inventory changes select a new crop.
 sunflower_rows shrinks on small farms so 8x8 keeps a feed rim (was zero free tiles).
 Water when get_water() < 0.5.
 
@@ -38,21 +40,41 @@ after the whole square is ready.
 Step flow
 ---------
 wear_straw (if Hats)
-ensure_power (no-op without Sunflowers)
 buy_all
-farm_pass x farm_pass_count()  # 3 with Polyculture, else 1
-ensure_power between phases
+farm_pass  # resident teams span farm_pass_count() leader cycles
+buy_all only after every main-farm worker has exited
+ensure_power between special modes
 dino_run if Dinosaurs (+ Hats, food; shrink only with Debug_2)
 maze_run if Mazes (+ substance; power gate only with Sunflowers)
-buy_all between phases
+buy_all between special modes
 
 Farm
 ----
-try_spawn() only calls spawn_drone after Megafarm; otherwise one drone runs
-each column. Then if unlocked:
-1. pumpkin_wait_and_harvest
-2. cactus_wait_sort_and_harvest
-3. multi-drone sunflower strip harvest (falls back to single drone)
+Main-farm regions have exclusive tile ownership. On 8x8, pumpkins keep the
+6x6 square and cactus uses the remaining 2x6 rectangle beside it.
+Main-farm workers use game lists/dictionaries/functions, not Python threads.
+The host-side tests use Python threads only to simulate concurrent drones.
+
+Drone shares, including the main drone: feed 15%, pumpkins 15%, sunflowers
+10%, and remaining capacity for cactus. Percentages round to nearest whole
+drones, with minimum coverage where capacity permits. Empty regions use none.
+Mixed crops and sunflowers keep resident drones on disjoint tile ranges.
+Pumpkin/cactus helpers process whole stages; no per-quantum spawn/join churn.
+Single-drone/low-capacity fallbacks share local work fairly.
+
+Pumpkins scan once and retain only unresolved tiles. Failed planting is retried
+without revisiting successful plants. Helpers never harvest partial giants;
+the coordinator joins all growing partitions before the single harvest, then
+replants the whole region. Pending queues persist into the next growth stage.
+
+Cactus grows to maturity, sorts disjoint rows, joins, sorts disjoint columns,
+joins, and verifies maturity plus East/North ordering before chain-harvest.
+Stages use only as many helpers as independent work allows. Replant afterward.
+
+The leader handle communicates main-farm completion without mutable globals.
+Feed workers keep supplying resources while remaining regions finish their
+first cycle. All workers drain before buy_all or any mode changes the field.
+Standalone power-restock, dinosaur, and maze routines keep their old behavior.
 
 Dino
 ----
